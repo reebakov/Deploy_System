@@ -20,7 +20,7 @@ from config import (
     DEPLOY_LOG_DIR,
 )
 from database import DeployLog, SessionLocal, cleanup_old_logs
-from inventory_manager import parse_inventory
+from inventory_manager import parse_inventory, check_pcs_in_inventory, add_pcs_to_inventory
 from logging_setup import setup_logging
 from bot import bot_job
 
@@ -113,6 +113,35 @@ async def view_inventory(request: Request, user: str = Depends(check_auth)):
     )
 
 
+@app.post("/inventory/add")
+async def manual_inventory_add(
+    new_pcs: str = Form(...),
+    user: str = Depends(check_auth)
+):
+    db = SessionLocal()
+    try:
+        active_deploy = db.query(DeployLog).filter(DeployLog.status.like("%В процессе%")).first()
+        if active_deploy:
+            raise HTTPException(
+                status_code=400, 
+                detail="Инвентарь занят: выполняется деплой. Подождите завершения задачи, чтобы не нарушить работу Ansible."
+            )
+    finally:
+        db.close()
+
+    pcs = [pc.strip().upper() for pc in new_pcs.replace(" ", ",").split(",") if pc.strip()]
+    if not pcs:
+        raise HTTPException(status_code=400, detail="Не указаны имена ПК")
+
+    found, missing = check_pcs_in_inventory(pcs)
+    if missing:
+        success = add_pcs_to_inventory(missing)
+        if not success:
+            raise HTTPException(status_code=500, detail="Ошибка при записи в файл инвентаря.")
+            
+    return RedirectResponse("/inventory", status_code=303)
+
+
 @app.get("/api/statuses")
 async def api_statuses(user: str = Depends(check_auth)):
     db = SessionLocal()
@@ -165,8 +194,25 @@ async def manual_deploy(
     pcs = [pc.strip().upper() for pc in target_pcs.split(",") if pc.strip()]
     if not pcs:
         return RedirectResponse("/", status_code=303)
-    target_str = ",".join(pcs)
+        
+    db = SessionLocal()
+    try:
+        active_deploy = db.query(DeployLog).filter(DeployLog.status.like("%В процессе%")).first()
+        if active_deploy:
+            raise HTTPException(
+                status_code=400, 
+                detail="Инвентарь занят: в данный момент уже выполняется деплой. Дождитесь завершения, чтобы не возникло конфликтов."
+            )
+    finally:
+        db.close()
 
+    # Проверяем и при необходимости добавляем ПК в инвентарь перед запуском деплоя
+    found, missing = check_pcs_in_inventory(pcs)
+    if missing:
+        if not add_pcs_to_inventory(missing):
+            raise HTTPException(status_code=500, detail="Ошибка при записи недостающих ПК в файл инвентаря.")
+
+    target_str = ",".join(pcs)
     task_name, cmd = _build_manual_cmd(deploy_type, pcs, skip_tags)
 
     db = SessionLocal()
@@ -181,7 +227,6 @@ async def manual_deploy(
     db.add(new_log); db.commit(); db.refresh(new_log)
     log_id = new_log.id
     
-    # Сразу ставим путь к файлу лога
     new_log.log_file = str(DEPLOY_LOG_DIR / f"deploy_{log_id}.log")
     db.commit()
     db.close()
@@ -202,13 +247,25 @@ async def repeat_deploy(log_id: int,
         pcs = [p.strip() for p in (old.target_pcs or "").split(",") if p.strip()]
         dtype = old.deploy_type or "room_only"
         stags = old.skip_tags or ""
+        
+        active_deploy = db.query(DeployLog).filter(DeployLog.status.like("%В процессе%")).first()
+        if active_deploy:
+            raise HTTPException(
+                status_code=400, 
+                detail="Инвентарь занят: в данный момент уже выполняется деплой. Дождитесь завершения."
+            )
     finally:
         db.close()
 
     if not pcs:
         return RedirectResponse("/", status_code=303)
-    target_str = ",".join(pcs)
+        
+    found, missing = check_pcs_in_inventory(pcs)
+    if missing:
+        if not add_pcs_to_inventory(missing):
+            raise HTTPException(status_code=500, detail="Ошибка при записи недостающих ПК в файл инвентаря.")
 
+    target_str = ",".join(pcs)
     task_name, cmd = _build_manual_cmd(dtype, pcs, stags)
     task_name += " (повтор)"
 

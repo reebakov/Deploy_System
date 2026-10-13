@@ -2,7 +2,7 @@
 <html lang="ru" data-bs-theme="light">
 <head>
 <meta charset="UTF-8">
-<title>Инвентарь - Deploy System</title>
+<title>Inventory - Deploy System</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 <style>
     [data-bs-theme="dark"] body { background-color: #1a1d21; }
@@ -15,7 +15,7 @@
     <a class="navbar-brand" href="/">🚀 Deploy System</a>
     <div class="navbar-nav me-auto">
       <a class="nav-link" href="/">История</a>
-      <a class="nav-link active" href="/inventory">Инвентарь группы</a>
+      <a class="nav-link active" href="/inventory">Inventory</a>
     </div>
     <button class="btn btn-outline-light btn-sm" id="theme-toggle" type="button" title="Тема">🌓</button>
   </div>
@@ -23,8 +23,25 @@
 
 <div class="container-fluid px-4">
   <h2 class="mb-4">📦 Группа {{ target_group }}</h2>
+  
   <div class="row g-3">
     <div class="col-md-4">
+      
+      <!-- Форма ручного добавления ПК -->
+      <div class="card shadow-sm mb-3">
+        <div class="card-header bg-success text-white fw-bold">Добавить ПК в Inventory</div>
+        <div class="card-body">
+          <form action="/inventory/add" method="POST">
+            <div class="mb-3">
+              <label for="new_pcs" class="form-label">Имена ПК (через запятую):</label>
+              <input type="text" class="form-control" id="new_pcs" name="new_pcs" placeholder="Например: A105, A106" required>
+            </div>
+            <button type="submit" class="btn btn-success w-100 fw-bold">Добавить</button>
+          </form>
+        </div>
+      </div>
+      
+      <!-- Список ПК -->
       <div class="card shadow-sm">
         <div class="card-header bg-primary text-white">Список ПК</div>
         <ul class="list-group list-group-flush">
@@ -39,6 +56,7 @@
         </div>
       </div>
     </div>
+    
     <div class="col-md-8">
       <div class="card shadow-sm">
         <div class="card-header bg-secondary text-white">Сырой файл инвентаря</div>
