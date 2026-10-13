@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="ru" data-bs-theme="light">
+<head>
+<meta charset="UTF-8">
+<title>Дашборд Деплоя ПК</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css" rel="stylesheet">
+<style>
+    body { background-color: #f8f9fa; }
+    [data-bs-theme="dark"] body { background-color: #1a1d21; }
+    .log-output {
+        background: #0d1117; color: #7ee787; padding: 10px;
+        border-radius: 5px; font-size: 0.85em; max-height: 60vh;
+        overflow-y: auto; white-space: pre-wrap;
+    }
+    details { cursor: pointer; }
+    .status-filter .btn { margin-right: 4px; }
+</style>
+</head>
+<body>
+
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+  <div class="container-fluid px-4">
+    <a class="navbar-brand" href="/">🚀 Deploy System</a>
+    <div class="navbar-nav me-auto">
+      <a class="nav-link active" href="/">История</a>
+      <a class="nav-link" href="/inventory">Инвентарь группы</a>
+    </div>
+    <button class="btn btn-outline-light btn-sm" id="theme-toggle" type="button" title="Тема">🌓</button>
+  </div>
+</nav>
+
+<div class="container-fluid px-4">
+  <h2 class="mb-4">🖥️ Дашборд Деплоя ПК</h2>
+
+  <div class="card shadow-sm mb-4 border-primary">
+    <div class="card-header bg-primary text-white fw-bold">⚡ Ручной запуск Ansible</div>
+    <div class="card-body">
+      <form action="/manual_deploy" method="post" class="row g-3 align-items-center">
+        <div class="col-auto">
+          <label class="col-form-label fw-bold" for="target_pcs">ПК (через запятую):</label>
+        </div>
+        <div class="col-md-3">
+          <input type="text" class="form-control" id="target_pcs" name="target_pcs"
+                 placeholder="A105, A106" required>
+        </div>
+        <div class="col-auto">
+          <label class="col-form-label fw-bold" for="deploy_type">Режим:</label>
+        </div>
+        <div class="col-md-4">
+          <select class="form-select" id="deploy_type" name="deploy_type">
+            <option value="room_only">Только обновление рума (neoagent, clubgg)</option>
+            <option value="full">Полный деплой (с пропуском тегов)</option>
+            <option value="ssh">Закинуть SSH (openssh_init.yaml)</option>
+          </select>
+        </div>
+        <div class="col-auto">
+          <button type="submit" class="btn btn-success fw-bold">Запустить деплой</button>
+        </div>
+        <div class="col-12 mt-3 d-none" id="skip_tags_block">
+          <label class="form-label fw-bold text-danger" for="skip_tags">Пропустить теги (--skip-tags):</label>
+          <input type="text" class="form-control border-danger" id="skip_tags" name="skip_tags"
+                 value="{{ skip_tags_default }}">
+          <div class="form-text">Удалите из списка те теги, которые <b>нужно</b> выполнить.</div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <h4 class="m-0">История запусков</h4>
+    <div class="status-filter">
+      <button class="btn btn-sm btn-outline-secondary filter-btn active" data-status="all">Все</button>
+      <button class="btn btn-sm btn-outline-warning filter-btn" data-status="progress">В процессе</button>
+      <button class="btn btn-sm btn-outline-success filter-btn" data-status="ok">Успешно</button>
+      <button class="btn btn-sm btn-outline-danger filter-btn" data-status="error">Ошибки</button>
+      <button onclick="window.location.reload();" class="btn btn-outline-secondary btn-sm fw-bold">🔄 Обновить</button>
+    </div>
+  </div>
+
+  <div class="card shadow-sm mb-5">
+    <div class="card-body">
+      <table id="logsTable" class="table table-hover align-middle w-100">
+        <thead class="table-light">
+          <tr>
+            <th>ID</th><th>Задача</th><th>Сценарий</th><th>ПК</th>
+            <th>Статус</th><th>Время (НСК)</th><th>Длит.</th><th>Логи</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for log in logs %}
+          {% set s_lower = log.status | lower %}
+          {% if 'успеш' in s_lower %}
+            {% set tr_status = 'ok' %}
+            {% set badge_class = 'bg-success' %}
+          {% elif 'в процессе' in s_lower %}
+            {% set tr_status = 'progress' %}
+            {% set badge_class = 'bg-warning text-dark' %}
+          {% else %}
+            {% set tr_status = 'error' %}
+            {% set badge_class = 'bg-danger' %}
+          {% endif %}
+
+          <tr data-status="{{ tr_status }}">
+            <td>{{ log.id }}</td>
+            <td>
+              {% if log.jira_key and log.jira_key.startswith('ACC-') %}
+                <strong><a href="{{ jira_url }}/browse/{{ log.jira_key }}" target="_blank"
+                           class="text-decoration-none">{{ log.jira_key }}</a></strong>
+              {% else %}
+                <strong>{{ log.jira_key }}</strong>
+              {% endif %}
+            </td>
+            <td>{{ log.task_type }}</td>
+            <td>{{ log.target_pcs }}</td>
+            <td>
+              <span class="badge {{ badge_class }}">{{ log.status }}</span>
+            </td>
+            <td>{{ log.display_time }}</td>
+            <td class="text-muted small">{{ log.duration }}</td>
+            <td>
+              <button class="btn btn-sm btn-outline-primary" onclick="showLog({{ log.id }})">Показать</button>
+            </td>
+            <td class="text-nowrap">
+              <button class="btn btn-sm btn-outline-secondary" onclick="repeatDeploy({{ log.id }})" title="Повторить">🔁</button>
+              {% if 'В процессе' in log.status %}
+              <button class="btn btn-sm btn-outline-danger" onclick="cancelDeploy({{ log.id }})" title="Отменить">🛑</button>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="logModal" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Логи запуска #<span id="logModalId"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <pre id="logModalBody" class="log-output">Загрузка...</pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+<script>
+(function () {
+  const saved = localStorage.getItem('theme') || 'light';
+  document.documentElement.setAttribute('data-bs-theme', saved);
+})();
+document.getElementById('theme-toggle').addEventListener('click', function () {
+  const cur = document.documentElement.getAttribute('data-bs-theme');
+  const next = cur === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-bs-theme', next);
+  localStorage.setItem('theme', next);
+});
+
+$(document).ready(function () {
+  const table = $('#logsTable').DataTable({
+    language: { url: "//cdn.datatables.net/plug-ins/1.13.6/i18n/ru.json" },
+    lengthMenu: [[25, 50, 100, 200, -1], [25, 50, 100, 200, "Все"]],
+    pageLength: 25,
+    order: [[0, "desc"]],
+    columnDefs: [{ orderable: false, targets: [7, 8] }],
+  });
+
+  let currentFilter = 'all';
+  window.applyFilter = function() {
+    table.rows().every(function () {
+      const st = this.node().getAttribute('data-status');
+      const show = currentFilter === 'all' || st === currentFilter;
+      $(this.node()).toggle(show);
+    });
+  };
+  $('.filter-btn').on('click', function () {
+    $('.filter-btn').removeClass('active');$(this).addClass('active');
+    currentFilter = $(this).data('status');
+    window.applyFilter();
+  });
+  window.applyFilter();
+
+  $('#deploy_type').on('change', function () {
+    $('#skip_tags_block').toggleClass('d-none', this.value !== 'full');
+  });
+});
+
+let logStream = null;
+function showLog(id) {
+  $('#logModalId').text(id);
+  const body = document.getElementById('logModalBody');
+  const modal = new bootstrap.Modal(document.getElementById('logModal'));
+  modal.show();
+
+  if (logStream) { logStream.close(); logStream = null; }
+  body.textContent = '';
+
+  logStream = new EventSource(`/logs/${id}/stream`);
+  logStream.onmessage = (e) => {
+    if (e.data === '[END]') {
+      logStream.close();
+      logStream = null;
+      return;
+    }
+    body.textContent += e.data + '\n';
+    body.scrollTop = body.scrollHeight;
+  };
+  logStream.onerror = () => {
+    body.textContent += '\n[соединение закрыто]';
+    if (logStream) { logStream.close(); logStream = null; }
+  };
+}
+
+function repeatDeploy(id) {
+  if (!confirm('Повторить запуск #' + id + '?')) return;
+  const f = document.createElement('form');
+  f.method = 'POST';
+  f.action = '/repeat/' + id;
+  document.body.appendChild(f);
+  f.submit();
+}
+
+function cancelDeploy(id) {
+  if (!confirm('Отменить запуск #' + id + '?')) return;
+  fetch('/cancel/' + id, { method: 'POST' })
+    .then(r => r.json())
+    .then(d => {
+      if (!d.cancelled) alert('Не удалось отменить (процесс уже завершён?)');
+    });
+}
+
+function updateStatuses() {
+  fetch('/api/statuses')
+    .then(res => res.json())
+    .then(data => {
+      let needsRefilter = false;
+
+      $('#logsTable tbody tr').each(function () {
+        const row = $(this);
+        const idText = row.find('td:eq(0)').text().trim();
+        if (!idText) return;
+        const id = parseInt(idText);
+
+        if (data[id]) {
+          const newStatus = data[id].status;
+          const newDuration = data[id].duration;
+          const currentStatusAttr = row.attr('data-status');
+
+          const sLower = newStatus.toLowerCase();
+          let targetCategory = 'error';
+          let badgeClass = 'bg-danger';
+
+          if (sLower.includes('успеш')) {
+            targetCategory = 'ok';
+            badgeClass = 'bg-success';
+          } else if (sLower.includes('в процессе')) {
+            targetCategory = 'progress';
+            badgeClass = 'bg-warning text-dark';
+          }
+
+          row.find('td:eq(6)').text(newDuration);
+
+          if (currentStatusAttr !== targetCategory) {
+            row.attr('data-status', targetCategory);
+            row.find('td:eq(4)').html(`<span class="badge ${badgeClass}">${newStatus}</span>`);
+            if (targetCategory !== 'progress') {
+               row.find('.btn-outline-danger').remove();
+            }
+            needsRefilter = true;
+          } else {
+            row.find('td:eq(4) .badge').text(newStatus);
+          }
+        }
+      });
+
+      if (needsRefilter && typeof window.applyFilter === 'function') {
+        window.applyFilter();
+      }
+    })
+    .catch(err => console.error("Ошибка при обновлении статусов", err));
+}
+
+setInterval(updateStatuses, 3000);
+</script>
+</body>
+</html>
