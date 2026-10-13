@@ -2,71 +2,360 @@
 <html lang="ru" data-bs-theme="light">
 <head>
 <meta charset="UTF-8">
-<title>Inventory - Deploy System</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inventory — Deploy System</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+
 <style>
-    [data-bs-theme="dark"] body { background-color: #1a1d21; }
-    pre { max-height: 600px; overflow-y: auto; }
+/* ================= TOKENS ================= */
+:root{
+  --bg:#fafafa;
+  --panel:#ffffff;
+  --panel-2:#f4f4f5;
+  --line:#e5e5e5;
+  --line-2:#d4d4d4;
+  --ink:#0a0a0a;
+  --ink-2:#525252;
+  --ink-3:#8a8a8a;
+  --accent:#059669;
+  --accent-2:#10b981;
+  --accent-soft:rgba(5,150,105,.08);
+  --accent-ring:rgba(5,150,105,.18);
+  --radius:8px;
+  --radius-lg:10px;
+  --shadow:0 1px 2px rgba(0,0,0,.04);
+}
+[data-bs-theme="dark"]{
+  --bg:#09090b;
+  --panel:#101012;
+  --panel-2:#18181b;
+  --line:#1f1f23;
+  --line-2:#2a2a2f;
+  --ink:#fafafa;
+  --ink-2:#a1a1aa;
+  --ink-3:#71717a;
+  --accent:#10b981;
+  --accent-2:#34d399;
+  --accent-soft:rgba(16,185,129,.09);
+  --accent-ring:rgba(16,185,129,.22);
+}
+
+*{ -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; }
+html,body{ height:100%; }
+body{
+  font-family:'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif;
+  background:var(--bg);
+  color:var(--ink);
+  font-size:.875rem;
+  line-height:1.5;
+  letter-spacing:-.005em;
+  transition:background .15s ease, color .15s ease;
+}
+::selection{ background:var(--accent-soft); color:var(--accent); }
+
+/* ================= NAVBAR ================= */
+.top{
+  position:sticky; top:0; z-index:1030;
+  background:color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter:saturate(160%) blur(10px);
+  -webkit-backdrop-filter:saturate(160%) blur(10px);
+  border-bottom:1px solid var(--line);
+}
+.top-inner{
+  max-width:1400px; margin:0 auto; padding:0 28px;
+  height:56px; display:flex; align-items:center; gap:6px;
+}
+.brand{
+  display:inline-flex; align-items:center; gap:8px;
+  color:var(--ink); text-decoration:none;
+  font-weight:600; font-size:.875rem;
+  padding:6px 8px; border-radius:6px; margin-right:8px;
+}
+.brand:hover{ color:var(--ink); }
+.brand i{
+  font-size:1.05rem; line-height:1;
+  color:var(--accent);
+  filter:drop-shadow(0 0 6px var(--accent-ring));
+}
+.nav-a{
+  color:var(--ink-2); text-decoration:none;
+  padding:6px 10px; border-radius:6px;
+  font-size:.8125rem; font-weight:500;
+  display:inline-flex; align-items:center; gap:7px;
+  transition:color .12s, background .12s;
+}
+.nav-a i{
+  font-size:.95rem; line-height:1;
+  opacity:.7;
+  transition:opacity .12s, color .12s;
+}
+.nav-a:hover{ color:var(--ink); background:var(--panel-2); }
+.nav-a:hover i{ opacity:1; }
+.nav-a.active{ color:var(--ink); background:var(--panel-2); font-weight:600; }
+.nav-a.active i{ opacity:1; color:var(--accent); }
+.top-right{ margin-left:auto; display:flex; align-items:center; gap:6px; }
+.iconb{
+  width:30px; height:30px;
+  display:inline-grid; place-items:center;
+  border:1px solid var(--line); border-radius:6px;
+  background:transparent; color:var(--ink-2);
+  cursor:pointer; font-size:.9rem;
+  transition:.12s;
+}
+.iconb:hover{ background:var(--panel-2); color:var(--ink); border-color:var(--line-2); }
+
+/* ================= LAYOUT ================= */
+.page{ max-width:1400px; margin:0 auto; padding:36px 28px 72px; }
+.head{ margin-bottom:32px; }
+.head h1{
+  font-size:1.375rem; font-weight:600;
+  letter-spacing:-.02em; margin:0 0 4px;
+  display:flex; align-items:center; gap:10px;
+}
+.head h1 code{
+  font-family:'JetBrains Mono',monospace;
+  color:var(--accent); font-size:1.1rem;
+  background:var(--accent-soft);
+  padding:2px 8px; border-radius:6px;
+  font-weight:500;
+}
+.head p{ color:var(--ink-3); font-size:.8125rem; margin:0; }
+
+.grid{
+  display:grid;
+  grid-template-columns:minmax(0,360px) minmax(0,1fr);
+  gap:20px;
+  align-items:start;
+}
+@media (max-width: 900px){
+  .grid{ grid-template-columns:1fr; }
+}
+
+/* ================= PANEL ================= */
+.panel{
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:var(--radius-lg);
+  overflow:hidden;
+}
+.panel + .panel{ margin-top:20px; }
+.panel-h{
+  display:flex; align-items:center; gap:8px;
+  padding:12px 18px;
+  border-bottom:1px solid var(--line);
+  font-size:.75rem; font-weight:600;
+  color:var(--ink-2);
+  letter-spacing:.02em; text-transform:uppercase;
+}
+.panel-h i{ color:var(--accent); font-size:.9rem; }
+.panel-h .h-tag{
+  margin-left:auto;
+  font-size:.6875rem; font-weight:500;
+  color:var(--ink-3); text-transform:none; letter-spacing:0;
+  font-family:'JetBrains Mono',monospace;
+}
+.panel-b{ padding:18px; }
+.panel-b.flush{ padding:0; }
+
+/* ================= FORM ================= */
+.lbl{
+  display:block;
+  font-size:.6875rem; font-weight:600;
+  letter-spacing:.06em; text-transform:uppercase;
+  color:var(--ink-3);
+  margin-bottom:6px;
+}
+.inp{
+  width:100%;
+  background:var(--panel);
+  color:var(--ink);
+  border:1px solid var(--line);
+  border-radius:var(--radius);
+  padding:.5rem .7rem;
+  font-size:.8125rem;
+  font-family:inherit;
+  transition:border-color .12s, box-shadow .12s;
+}
+.inp:focus{
+  outline:none;
+  border-color:var(--accent);
+  box-shadow:0 0 0 3px var(--accent-ring);
+}
+.inp::placeholder{ color:var(--ink-3); }
+
+.btn-acc{
+  display:inline-flex; align-items:center; justify-content:center; gap:6px;
+  width:100%;
+  background:var(--accent); color:#fff;
+  border:1px solid var(--accent);
+  border-radius:var(--radius);
+  padding:.5rem .9rem;
+  font-size:.8125rem; font-weight:600;
+  font-family:inherit; cursor:pointer;
+  transition:.12s;
+}
+.btn-acc:hover{ background:var(--accent-2); border-color:var(--accent-2); }
+.btn-acc:active{ transform:translateY(1px); }
+.btn-acc i{ font-size:.9rem; }
+
+/* ================= PC LIST ================= */
+.pc-list{
+  list-style:none; margin:0; padding:6px 0;
+  max-height:420px; overflow-y:auto;
+}
+.pc-list li{
+  padding:.5rem 18px;
+  font-family:'JetBrains Mono',monospace;
+  font-size:.8125rem; font-weight:500;
+  color:var(--ink);
+  border-bottom:1px solid var(--line);
+  display:flex; align-items:center; gap:10px;
+  transition:background .1s;
+}
+.pc-list li:last-child{ border-bottom:0; }
+.pc-list li:hover{ background:var(--panel-2); }
+.pc-list li::before{
+  content:""; width:5px; height:5px; border-radius:50%;
+  background:var(--accent);
+  box-shadow:0 0 0 3px var(--accent-soft);
+  flex:none;
+}
+.pc-empty{
+  padding:24px 18px; text-align:center;
+  color:var(--ink-3); font-size:.8125rem;
+}
+.pc-empty i{ display:block; font-size:1.5rem; margin-bottom:8px; opacity:.4; }
+.pc-foot{
+  padding:10px 18px;
+  border-top:1px solid var(--line);
+  font-size:.75rem; color:var(--ink-3);
+  display:flex; justify-content:space-between; align-items:center;
+}
+.pc-foot b{ color:var(--ink); font-weight:600; }
+
+/* ================= CODE BLOCK ================= */
+.raw{
+  background:var(--panel-2);
+  color:var(--ink);
+  border:0;
+  border-radius:0;
+  padding:18px 20px;
+  margin:0;
+  max-height:640px;
+  overflow:auto;
+  font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;
+  font-size:.75rem;
+  line-height:1.7;
+  white-space:pre;
+}
+.raw::-webkit-scrollbar{ width:10px; height:10px; }
+.raw::-webkit-scrollbar-thumb{ background:var(--line-2); border-radius:5px; }
+.raw::-webkit-scrollbar-track{ background:transparent; }
+
+/* scroll for pc-list */
+.pc-list::-webkit-scrollbar{ width:8px; }
+.pc-list::-webkit-scrollbar-thumb{ background:var(--line-2); border-radius:4px; }
 </style>
 </head>
-<body style="background-color: #f8f9fa;">
-<nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
-  <div class="container-fluid px-4">
-    <a class="navbar-brand" href="/">🚀 Deploy System</a>
-    <div class="navbar-nav me-auto">
-      <a class="nav-link" href="/">История</a>
-      <a class="nav-link active" href="/inventory">Inventory</a>
-    </div>
-    <button class="btn btn-outline-light btn-sm" id="theme-toggle" type="button" title="Тема">🌓</button>
-  </div>
-</nav>
+<body>
 
-<div class="container-fluid px-4">
-  <h2 class="mb-4">📦 Группа {{ target_group }}</h2>
-  
-  <div class="row g-3">
-    <div class="col-md-4">
-      
-      <!-- Форма ручного добавления ПК -->
-      <div class="card shadow-sm mb-3">
-        <div class="card-header bg-success text-white fw-bold">Добавить ПК в Inventory</div>
-        <div class="card-body">
+<header class="top">
+  <div class="top-inner">
+    <a class="brand" href="/">
+      <i class="bi bi-stack"></i>
+      Deploy System
+    </a>
+    <a class="nav-a" href="/">
+      <i class="bi bi-list-ul"></i>
+      Журнал задач
+    </a>
+    <a class="nav-a active" href="/inventory">
+      <i class="bi bi-database"></i>
+      Inventory
+    </a>
+    <div class="top-right">
+      <button class="iconb" id="theme-toggle" type="button" title="Сменить тему">
+        <i class="bi bi-circle-half"></i>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main class="page">
+
+  <div class="head">
+    <h1>
+      <i class="bi bi-folder2-open" style="color:var(--accent);"></i>
+      Группа <code>{{ target_group }}</code>
+    </h1>
+    <p>Управление составом группы и просмотр сырого инвентаря</p>
+  </div>
+
+  <div class="grid">
+
+    <!-- Левая колонка -->
+    <div>
+      <section class="panel">
+        <div class="panel-h">
+          <i class="bi bi-plus-square"></i>
+          <span>Добавить ПК</span>
+          <span class="h-tag">/inventory/add</span>
+        </div>
+        <div class="panel-b">
           <form action="/inventory/add" method="POST">
-            <div class="mb-3">
-              <label for="new_pcs" class="form-label">Имена ПК (через запятую):</label>
-              <input type="text" class="form-control" id="new_pcs" name="new_pcs" placeholder="Например: A105, A106" required>
-            </div>
-            <button type="submit" class="btn btn-success w-100 fw-bold">Добавить</button>
+            <label class="lbl" for="new_pcs">Имена ПК (через запятую)</label>
+            <input type="text" class="inp mb-3" id="new_pcs" name="new_pcs"
+                   placeholder="A105, A106" required autocomplete="off">
+            <button type="submit" class="btn-acc">
+              <i class="bi bi-plus-lg"></i>
+              Добавить в группу
+            </button>
           </form>
         </div>
-      </div>
-      
-      <!-- Список ПК -->
-      <div class="card shadow-sm">
-        <div class="card-header bg-primary text-white">Список ПК</div>
-        <ul class="list-group list-group-flush">
+      </section>
+
+      <section class="panel">
+        <div class="panel-h">
+          <i class="bi bi-pc-display"></i>
+          <span>Список ПК</span>
+          <span class="h-tag">{{ clubgg_pcs|length }} шт.</span>
+        </div>
+        {% if clubgg_pcs %}
+        <ul class="pc-list">
           {% for pc in clubgg_pcs %}
-          <li class="list-group-item fw-bold">{{ pc }}</li>
-          {% else %}
-          <li class="list-group-item text-muted">Группа пуста или не найдена</li>
+          <li>{{ pc }}</li>
           {% endfor %}
         </ul>
-        <div class="card-footer text-muted small">
-          Всего машин: {{ clubgg_pcs|length }}
+        {% else %}
+        <div class="pc-empty">
+          <i class="bi bi-inbox"></i>
+          Группа пуста или не найдена
         </div>
-      </div>
-    </div>
-    
-    <div class="col-md-8">
-      <div class="card shadow-sm">
-        <div class="card-header bg-secondary text-white">Сырой файл инвентаря</div>
-        <div class="card-body">
-          <pre>{{ raw_content }}</pre>
+        {% endif %}
+        <div class="pc-foot">
+          <span>Всего машин</span>
+          <b>{{ clubgg_pcs|length }}</b>
         </div>
-      </div>
+      </section>
     </div>
+
+    <!-- Правая колонка -->
+    <section class="panel">
+      <div class="panel-h">
+        <i class="bi bi-file-earmark-code"></i>
+        <span>Сырой файл инвентаря</span>
+        <span class="h-tag">hosts.ini</span>
+      </div>
+      <pre class="raw">{{ raw_content }}</pre>
+    </section>
+
   </div>
-</div>
+</main>
 
 <script>
 (function () {

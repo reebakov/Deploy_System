@@ -2,87 +2,464 @@
 <html lang="ru" data-bs-theme="light">
 <head>
 <meta charset="UTF-8">
-<title>Дашборд Деплоя ПК</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Журнал задач — Deploy System</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
 <link href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css" rel="stylesheet">
+
 <style>
-    body { background-color: #f8f9fa; }
-    [data-bs-theme="dark"] body { background-color: #1a1d21; }
-    .log-output {
-        background: #0d1117; color: #7ee787; padding: 10px;
-        border-radius: 5px; font-size: 0.85em; max-height: 60vh;
-        overflow-y: auto; white-space: pre-wrap;
-    }
-    details { cursor: pointer; }
-    .status-filter .btn { margin-right: 4px; }
+/* ================= TOKENS ================= */
+:root{
+  --bg:#fafafa;
+  --panel:#ffffff;
+  --panel-2:#f4f4f5;
+  --line:#e5e5e5;
+  --line-2:#d4d4d4;
+  --ink:#0a0a0a;
+  --ink-2:#525252;
+  --ink-3:#8a8a8a;
+  --accent:#059669;
+  --accent-2:#10b981;
+  --accent-soft:rgba(5,150,105,.08);
+  --accent-ring:rgba(5,150,105,.18);
+  --danger:#dc2626;
+  --danger-soft:rgba(220,38,38,.08);
+  --warn:#d97706;
+  --warn-soft:rgba(217,119,6,.09);
+  --info:#0891b2;
+  --info-soft:rgba(8,145,178,.09);
+  --radius:8px;
+  --radius-lg:10px;
+  --shadow:0 1px 2px rgba(0,0,0,.04);
+}
+[data-bs-theme="dark"]{
+  --bg:#09090b;
+  --panel:#101012;
+  --panel-2:#18181b;
+  --line:#1f1f23;
+  --line-2:#2a2a2f;
+  --ink:#fafafa;
+  --ink-2:#a1a1aa;
+  --ink-3:#71717a;
+  --accent:#10b981;
+  --accent-2:#34d399;
+  --accent-soft:rgba(16,185,129,.09);
+  --accent-ring:rgba(16,185,129,.22);
+  --danger:#f87171;
+  --danger-soft:rgba(248,113,113,.1);
+  --warn:#fbbf24;
+  --warn-soft:rgba(251,191,36,.1);
+  --info:#38bdf8;
+  --info-soft:rgba(56,189,248,.1);
+}
+
+*{ -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; }
+html,body{ height:100%; }
+body{
+  font-family:'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif;
+  background:var(--bg);
+  color:var(--ink);
+  font-size:.875rem;
+  line-height:1.5;
+  letter-spacing:-.005em;
+  transition:background .15s ease, color .15s ease;
+}
+::selection{ background:var(--accent-soft); color:var(--accent); }
+
+/* ================= NAVBAR ================= */
+.top{
+  position:sticky; top:0; z-index:1030;
+  background:color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter:saturate(160%) blur(10px);
+  -webkit-backdrop-filter:saturate(160%) blur(10px);
+  border-bottom:1px solid var(--line);
+}
+.top-inner{
+  max-width:1400px; margin:0 auto; padding:0 28px;
+  height:56px; display:flex; align-items:center; gap:6px;
+}
+.brand{
+  display:inline-flex; align-items:center; gap:8px;
+  color:var(--ink); text-decoration:none;
+  font-weight:600; font-size:.875rem;
+  padding:6px 8px; border-radius:6px; margin-right:8px;
+}
+.brand:hover{ color:var(--ink); }
+.brand i{
+  font-size:1.05rem; line-height:1;
+  color:var(--accent);
+  filter:drop-shadow(0 0 6px var(--accent-ring));
+}
+.nav-a{
+  color:var(--ink-2); text-decoration:none;
+  padding:6px 10px; border-radius:6px;
+  font-size:.8125rem; font-weight:500;
+  display:inline-flex; align-items:center; gap:7px;
+  transition:color .12s, background .12s;
+}
+.nav-a i{
+  font-size:.95rem; line-height:1;
+  opacity:.7;
+  transition:opacity .12s, color .12s;
+}
+.nav-a:hover{ color:var(--ink); background:var(--panel-2); }
+.nav-a:hover i{ opacity:1; }
+.nav-a.active{ color:var(--ink); background:var(--panel-2); font-weight:600; }
+.nav-a.active i{ opacity:1; color:var(--accent); }
+.top-right{ margin-left:auto; display:flex; align-items:center; gap:6px; }
+.iconb{
+  width:30px; height:30px;
+  display:inline-grid; place-items:center;
+  border:1px solid var(--line); border-radius:6px;
+  background:transparent; color:var(--ink-2);
+  cursor:pointer; font-size:.9rem;
+  transition:.12s;
+}
+.iconb:hover{ background:var(--panel-2); color:var(--ink); border-color:var(--line-2); }
+
+/* ================= LAYOUT ================= */
+.page{ max-width:1400px; margin:0 auto; padding:36px 28px 72px; }
+.head{ margin-bottom:32px; }
+.head h1{
+  font-size:1.375rem; font-weight:600;
+  letter-spacing:-.02em; margin:0 0 4px;
+}
+.head p{ color:var(--ink-3); font-size:.8125rem; margin:0; }
+
+/* ================= PANEL ================= */
+.panel{
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:var(--radius-lg);
+  overflow:hidden;
+}
+.panel + .panel{ margin-top:20px; }
+.panel-h{
+  display:flex; align-items:center; gap:8px;
+  padding:12px 18px;
+  border-bottom:1px solid var(--line);
+  font-size:.75rem; font-weight:600;
+  color:var(--ink-2);
+  letter-spacing:.02em;
+  text-transform:uppercase;
+}
+.panel-h i{ color:var(--accent); font-size:.9rem; }
+.panel-h .h-tag{
+  margin-left:auto;
+  font-size:.6875rem; font-weight:500;
+  color:var(--ink-3); text-transform:none; letter-spacing:0;
+  font-family:'JetBrains Mono',monospace;
+}
+.panel-b{ padding:18px; }
+
+/* ================= FORM ================= */
+.lbl{
+  display:block;
+  font-size:.6875rem; font-weight:600;
+  letter-spacing:.06em; text-transform:uppercase;
+  color:var(--ink-3);
+  margin-bottom:6px;
+}
+.inp,.sel{
+  width:100%;
+  background:var(--panel);
+  color:var(--ink);
+  border:1px solid var(--line);
+  border-radius:var(--radius);
+  padding:.5rem .7rem;
+  font-size:.8125rem;
+  font-family:inherit;
+  transition:border-color .12s, box-shadow .12s, background .12s;
+}
+.inp:focus,.sel:focus{
+  outline:none;
+  border-color:var(--accent);
+  box-shadow:0 0 0 3px var(--accent-ring);
+}
+.inp::placeholder{ color:var(--ink-3); }
+.hint{ font-size:.6875rem; color:var(--ink-3); margin-top:6px; }
+
+/* ================= BUTTONS ================= */
+.btn-acc{
+  display:inline-flex; align-items:center; gap:6px;
+  background:var(--accent); color:#fff;
+  border:1px solid var(--accent);
+  border-radius:var(--radius);
+  padding:.5rem .9rem;
+  font-size:.8125rem; font-weight:600;
+  font-family:inherit; cursor:pointer;
+  transition:.12s;
+}
+.btn-acc:hover{ background:var(--accent-2); border-color:var(--accent-2); color:#fff; }
+.btn-acc:active{ transform:translateY(1px); }
+
+.btn-ghost{
+  display:inline-flex; align-items:center; justify-content:center; gap:6px;
+  background:transparent; color:var(--ink-2);
+  border:1px solid var(--line);
+  border-radius:6px;
+  padding:.28rem .6rem;
+  font-size:.75rem; font-weight:500;
+  font-family:inherit; cursor:pointer;
+  transition:.12s;
+  text-decoration:none;
+}
+.btn-ghost:hover{ background:var(--panel-2); color:var(--ink); border-color:var(--line-2); }
+.btn-ghost.dgr:hover{ color:var(--danger); border-color:var(--danger); background:var(--danger-soft); }
+.btn-ico{ width:28px; height:28px; padding:0; }
+.btn-ghost i{ font-size:.85rem; line-height:1; }
+
+/* ================= TOOLBAR ================= */
+.toolbar{
+  display:flex; align-items:center; justify-content:space-between;
+  gap:16px; margin:28px 0 14px; flex-wrap:wrap;
+}
+.toolbar h2{
+  font-size:.9375rem; font-weight:600;
+  letter-spacing:-.01em; margin:0;
+  display:inline-flex; align-items:center; gap:8px;
+}
+.toolbar h2 i{ color:var(--accent); font-size:1rem; }
+.toolbar-right{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.seg{
+  display:inline-flex; gap:1px;
+  background:var(--panel-2);
+  border:1px solid var(--line);
+  border-radius:var(--radius);
+  padding:2px;
+}
+.seg .filter-btn{
+  background:transparent; border:0; cursor:pointer;
+  font-family:inherit; font-size:.75rem; font-weight:500;
+  color:var(--ink-3);
+  padding:.32rem .7rem; border-radius:6px;
+  transition:.12s;
+}
+.seg .filter-btn:hover{ color:var(--ink); }
+.seg .filter-btn.active{
+  background:var(--panel); color:var(--ink);
+  font-weight:600;
+  box-shadow:var(--shadow);
+}
+
+/* ================= TABLE ================= */
+.table-h{ overflow-x:auto; }
+#logsTable{ --bs-table-bg:transparent; --bs-table-color:var(--ink); margin:0 !important; }
+#logsTable thead th{
+  background:transparent !important;
+  color:var(--ink-3);
+  font-size:.6875rem; font-weight:600;
+  letter-spacing:.05em; text-transform:uppercase;
+  padding:.75rem 1rem;
+  border-bottom:1px solid var(--line) !important;
+  white-space:nowrap;
+  text-align:left;
+}
+#logsTable tbody td{
+  padding:.7rem 1rem;
+  font-size:.8125rem;
+  vertical-align:middle;
+  border-bottom:1px solid var(--line);
+  color:var(--ink);
+}
+#logsTable tbody tr:last-child td{ border-bottom:0; }
+#logsTable tbody tr:hover td{ background:var(--panel-2); }
+#logsTable a{ color:var(--accent); text-decoration:none; font-weight:600; }
+#logsTable a:hover{ text-decoration:underline; }
+.c-id{ color:var(--ink-3); font-variant-numeric:tabular-nums; font-size:.75rem; }
+.c-mut{ color:var(--ink-3); font-size:.75rem; }
+
+/* DataTables */
+.dataTables_wrapper .row:first-child{ padding:14px 18px 6px; margin:0; align-items:center; }
+.dataTables_wrapper .row:last-child{ padding:12px 18px 16px; margin:0; align-items:center; }
+.dataTables_wrapper .dataTables_length,
+.dataTables_wrapper .dataTables_filter,
+.dataTables_wrapper .dataTables_info{ color:var(--ink-3); font-size:.75rem; }
+.dataTables_wrapper .dataTables_filter input{
+  background:var(--panel); border:1px solid var(--line);
+  color:var(--ink); border-radius:6px;
+  padding:.32rem .6rem; font-size:.75rem; margin-left:.5rem;
+  font-family:inherit;
+}
+.dataTables_wrapper .dataTables_filter input:focus{
+  outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-ring);
+}
+.dataTables_wrapper .dataTables_length select{
+  background:var(--panel); border:1px solid var(--line);
+  color:var(--ink); border-radius:6px;
+  padding:.28rem 1.5rem .28rem .55rem; font-size:.75rem;
+  font-family:inherit;
+}
+.pagination{ margin:0; gap:3px; }
+.pagination .page-link{
+  background:var(--panel); border:1px solid var(--line);
+  color:var(--ink-2); border-radius:6px;
+  font-size:.75rem; padding:.3rem .58rem;
+}
+.pagination .page-link:hover{ background:var(--panel-2); color:var(--ink); }
+.pagination .page-item.active .page-link{
+  background:var(--ink); border-color:var(--ink); color:var(--bg);
+}
+.pagination .page-item.disabled .page-link{ opacity:.35; }
+
+/* ================= STATUS ================= */
+.st{
+  display:inline-flex; align-items:center; gap:6px;
+  padding:.15rem .5rem .15rem .42rem;
+  border-radius:5px;
+  font-size:.6875rem; font-weight:600;
+  line-height:1.5; white-space:nowrap;
+  border:1px solid transparent;
+}
+.st::before{
+  content:""; width:5px; height:5px; border-radius:50%;
+  background:currentColor; flex:none;
+}
+.st-ok{ color:var(--accent); background:var(--accent-soft); border-color:var(--accent-ring); }
+.st-progress{ color:var(--warn); background:var(--warn-soft); border-color:rgba(217,119,6,.22); }
+.st-partial{ color:var(--info); background:var(--info-soft); border-color:rgba(8,145,178,.22); }
+.st-error{ color:var(--danger); background:var(--danger-soft); border-color:rgba(220,38,38,.22); }
+[data-bs-theme="dark"] .st-progress{ border-color:rgba(251,191,36,.25); }
+[data-bs-theme="dark"] .st-partial{ border-color:rgba(56,189,248,.25); }
+[data-bs-theme="dark"] .st-error{ border-color:rgba(248,113,113,.25); }
+
+/* ================= MODAL / LOG ================= */
+.modal-content{
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:12px;
+  color:var(--ink);
+}
+.modal-header,.modal-footer{ border-color:var(--line); }
+.modal-header{ padding:14px 18px; }
+.modal-title{ font-size:.875rem; font-weight:600; letter-spacing:-.01em; }
+.modal-title code{
+  color:var(--accent); font-family:'JetBrains Mono',monospace;
+  font-size:.8125rem;
+}
+[data-bs-theme="dark"] .btn-close{ filter:invert(1) brightness(1.6); }
+
+.log-output{
+  background:var(--panel-2);
+  color:var(--ink);
+  border:1px solid var(--line);
+  border-radius:8px;
+  padding:14px 16px;
+  margin:0;
+  font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;
+  font-size:.75rem;
+  line-height:1.7;
+  max-height:60vh;
+  overflow-y:auto;
+  white-space:pre-wrap;
+  word-break:break-word;
+}
+.log-output::-webkit-scrollbar{ width:8px; }
+.log-output::-webkit-scrollbar-thumb{ background:var(--line-2); border-radius:4px; }
+.log-output::-webkit-scrollbar-track{ background:transparent; }
 </style>
 </head>
 <body>
 
-<nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
-  <div class="container-fluid px-4">
-    <a class="navbar-brand" href="/">🚀 Deploy System</a>
-    <div class="navbar-nav me-auto">
-      <a class="nav-link active" href="/">История</a>
-      <a class="nav-link" href="/inventory">Inventory</a>
+<header class="top">
+  <div class="top-inner">
+    <a class="brand" href="/">
+      <i class="bi bi-stack"></i>
+      Deploy System
+    </a>
+    <a class="nav-a active" href="/">
+      <i class="bi bi-list-ul"></i>
+      Журнал задач
+    </a>
+    <a class="nav-a" href="/inventory">
+      <i class="bi bi-database"></i>
+      Inventory
+    </a>
+    <div class="top-right">
+      <button class="iconb" id="theme-toggle" type="button" title="Сменить тему">
+        <i class="bi bi-circle-half"></i>
+      </button>
     </div>
-    <button class="btn btn-outline-light btn-sm" id="theme-toggle" type="button" title="Тема">🌓</button>
   </div>
-</nav>
+</header>
 
-<div class="container-fluid px-4">
-  <h2 class="mb-4">🖥️ Дашборд Деплоя ПК</h2>
+<main class="page">
 
-  <div class="card shadow-sm mb-4 border-primary">
-    <div class="card-header bg-primary text-white fw-bold">⚡ Ручной запуск Ansible</div>
-    <div class="card-body">
-      <form action="/manual_deploy" method="post" class="row g-3 align-items-center">
-        <div class="col-auto">
-          <label class="col-form-label fw-bold" for="target_pcs">ПК (через запятую):</label>
+  <div class="head">
+    <h1>Дашборд деплоя ПК</h1>
+    <p>Ручной запуск Ansible · история выполнений</p>
+  </div>
+
+  <!-- ============ MANUAL DEPLOY ============ -->
+  <section class="panel">
+    <div class="panel-h">
+      <i class="bi bi-lightning-charge"></i>
+      <span>Ручной запуск Ansible</span>
+      <span class="h-tag">/manual_deploy</span>
+    </div>
+    <div class="panel-b">
+      <form action="/manual_deploy" method="post" class="row g-3 align-items-end">
+        <div class="col-12 col-lg-3">
+          <label class="lbl" for="target_pcs">ПК (через запятую)</label>
+          <input type="text" class="inp" id="target_pcs" name="target_pcs"
+                 placeholder="A105, A106" required autocomplete="off">
         </div>
-        <div class="col-md-3">
-          <input type="text" class="form-control" id="target_pcs" name="target_pcs"
-                 placeholder="A105, A106" required>
-        </div>
-        <div class="col-auto">
-          <label class="col-form-label fw-bold" for="deploy_type">Режим:</label>
-        </div>
-        <div class="col-md-4">
-          <select class="form-select" id="deploy_type" name="deploy_type">
+        <div class="col-12 col-lg-5">
+          <label class="lbl" for="deploy_type">Режим</label>
+          <select class="sel" id="deploy_type" name="deploy_type">
             <option value="room_only">Только обновление рума (neoagent, clubgg)</option>
             <option value="full">Полный деплой (с пропуском тегов)</option>
             <option value="ssh">Закинуть SSH (openssh_init.yaml)</option>
           </select>
         </div>
-        <div class="col-auto">
-          <button type="submit" class="btn btn-success fw-bold">Запустить деплой</button>
+        <div class="col-12 col-lg-auto">
+          <button type="submit" class="btn-acc">
+            <i class="bi bi-play-fill"></i>
+            Запустить
+          </button>
         </div>
-        <div class="col-12 mt-3 d-none" id="skip_tags_block">
-          <label class="form-label fw-bold text-danger" for="skip_tags">Пропустить теги (--skip-tags):</label>
-          <input type="text" class="form-control border-danger" id="skip_tags" name="skip_tags"
-                 value="{{ skip_tags_default }}">
-          <div class="form-text">Удалите из списка те теги, которые <b>нужно</b> выполнить.</div>
+
+        <div class="col-12 d-none" id="skip_tags_block">
+          <label class="lbl" for="skip_tags" style="color:var(--danger);">Пропустить теги — --skip-tags</label>
+          <input type="text" class="inp" id="skip_tags" name="skip_tags"
+                 value="{{ skip_tags_default }}"
+                 style="border-color:var(--danger);">
+          <div class="hint">Удалите из списка те теги, которые <b>нужно</b> выполнить.</div>
         </div>
       </form>
     </div>
-  </div>
+  </section>
 
-  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-    <h4 class="m-0">История запусков</h4>
-    <div class="status-filter">
-      <button class="btn btn-sm btn-outline-secondary filter-btn active" data-status="all">Все</button>
-      <button class="btn btn-sm btn-outline-warning filter-btn" data-status="progress">В процессе</button>
-      <button class="btn btn-sm btn-outline-success filter-btn" data-status="ok">Успешно</button>
-      <button class="btn btn-sm btn-outline-info filter-btn" data-status="partial">Частично</button>
-      <button class="btn btn-sm btn-outline-danger filter-btn" data-status="error">Ошибки</button>
-      <button onclick="window.location.reload();" class="btn btn-outline-secondary btn-sm fw-bold">🔄 Обновить</button>
+  <!-- ============ HISTORY ============ -->
+  <div class="toolbar">
+    <h2>
+      <i class="bi bi-clock-history"></i>
+      История запусков
+    </h2>
+    <div class="toolbar-right">
+      <div class="seg">
+        <button class="filter-btn active" data-status="all">Все</button>
+        <button class="filter-btn" data-status="progress">В процессе</button>
+        <button class="filter-btn" data-status="ok">Успешно</button>
+        <button class="filter-btn" data-status="partial">Частично</button>
+        <button class="filter-btn" data-status="error">Ошибки</button>
+      </div>
+      <button class="btn-ghost" onclick="window.location.reload();">
+        <i class="bi bi-arrow-clockwise"></i>
+        Обновить
+      </button>
     </div>
   </div>
 
-  <div class="card shadow-sm mb-5">
-    <div class="card-body">
-      <table id="logsTable" class="table table-hover align-middle w-100">
-        <thead class="table-light">
+  <section class="panel">
+    <div class="table-h">
+      <table id="logsTable" class="table align-middle w-100">
+        <thead>
           <tr>
             <th>ID</th><th>Задача</th><th>Сценарий</th><th>ПК</th>
             <th>Статус</th><th>Время (НСК)</th><th>Длит.</th><th>Логи</th><th></th>
@@ -92,43 +469,43 @@
         {% for log in logs %}
           {% set s_lower = log.status | lower %}
           {% if 'успеш' in s_lower %}
-            {% set tr_status = 'ok' %}
-            {% set badge_class = 'bg-success' %}
+            {% set tr_status = 'ok' %}{% set badge_class = 'st-ok' %}
           {% elif 'в процессе' in s_lower %}
-            {% set tr_status = 'progress' %}
-            {% set badge_class = 'bg-warning text-dark' %}
+            {% set tr_status = 'progress' %}{% set badge_class = 'st-progress' %}
           {% elif 'частично' in s_lower %}
-            {% set tr_status = 'partial' %}
-            {% set badge_class = 'bg-info text-dark' %}
+            {% set tr_status = 'partial' %}{% set badge_class = 'st-partial' %}
           {% else %}
-            {% set tr_status = 'error' %}
-            {% set badge_class = 'bg-danger' %}
+            {% set tr_status = 'error' %}{% set badge_class = 'st-error' %}
           {% endif %}
 
           <tr data-status="{{ tr_status }}">
-            <td>{{ log.id }}</td>
+            <td class="c-id">{{ log.id }}</td>
             <td>
               {% if log.jira_key and log.jira_key.startswith('ACC-') %}
-                <strong><a href="{{ jira_url }}/browse/{{ log.jira_key }}" target="_blank"
-                           class="text-decoration-none">{{ log.jira_key }}</a></strong>
+                <a href="{{ jira_url }}/browse/{{ log.jira_key }}" target="_blank">{{ log.jira_key }}</a>
               {% else %}
                 <strong>{{ log.jira_key }}</strong>
               {% endif %}
             </td>
             <td>{{ log.task_type }}</td>
             <td>{{ log.target_pcs }}</td>
+            <td><span class="st {{ badge_class }}">{{ log.status }}</span></td>
+            <td class="c-mut">{{ log.display_time }}</td>
+            <td class="c-mut">{{ log.duration }}</td>
             <td>
-              <span class="badge {{ badge_class }}">{{ log.status }}</span>
-            </td>
-            <td>{{ log.display_time }}</td>
-            <td class="text-muted small">{{ log.duration }}</td>
-            <td>
-              <button class="btn btn-sm btn-outline-primary" onclick="showLog({{ log.id }})">Показать</button>
+              <button class="btn-ghost" onclick="showLog({{ log.id }})">
+                <i class="bi bi-terminal"></i>
+                Показать
+              </button>
             </td>
             <td class="text-nowrap">
-              <button class="btn btn-sm btn-outline-secondary" onclick="repeatDeploy({{ log.id }})" title="Повторить">🔁</button>
+              <button class="btn-ghost btn-ico" onclick="repeatDeploy({{ log.id }})" title="Повторить">
+                <i class="bi bi-arrow-repeat"></i>
+              </button>
               {% if 'В процессе' in log.status %}
-              <button class="btn btn-sm btn-outline-danger" onclick="cancelDeploy({{ log.id }})" title="Отменить">🛑</button>
+              <button class="btn-ghost btn-ico dgr js-cancel" onclick="cancelDeploy({{ log.id }})" title="Отменить">
+                <i class="bi bi-x-lg"></i>
+              </button>
               {% endif %}
             </td>
           </tr>
@@ -136,14 +513,18 @@
         </tbody>
       </table>
     </div>
-  </div>
-</div>
+  </section>
+</main>
 
+<!-- ============ LOG MODAL ============ -->
 <div class="modal fade" id="logModal" tabindex="-1">
   <div class="modal-dialog modal-xl modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title">Логи запуска #<span id="logModalId"></span></h5>
+        <h5 class="modal-title">
+          <i class="bi bi-terminal me-1"></i>
+          Логи запуска #<code id="logModalId"></code>
+        </h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
@@ -159,6 +540,7 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 
 <script>
+/* ---------- Тема ---------- */
 (function () {
   const saved = localStorage.getItem('theme') || 'light';
   document.documentElement.setAttribute('data-bs-theme', saved);
@@ -170,6 +552,7 @@ document.getElementById('theme-toggle').addEventListener('click', function () {
   localStorage.setItem('theme', next);
 });
 
+/* ---------- DataTable ---------- */
 $(document).ready(function () {
   const table = $('#logsTable').DataTable({
     language: { url: "//cdn.datatables.net/plug-ins/1.13.6/i18n/ru.json" },
@@ -180,7 +563,7 @@ $(document).ready(function () {
   });
 
   let currentFilter = 'all';
-  window.applyFilter = function() {
+  window.applyFilter = function () {
     table.rows().every(function () {
       const st = this.node().getAttribute('data-status');
       const show = currentFilter === 'all' || st === currentFilter;
@@ -188,7 +571,8 @@ $(document).ready(function () {
     });
   };
   $('.filter-btn').on('click', function () {
-    $('.filter-btn').removeClass('active');$(this).addClass('active');
+    $('.filter-btn').removeClass('active');
+    $(this).addClass('active');
     currentFilter = $(this).data('status');
     window.applyFilter();
   });
@@ -199,6 +583,7 @@ $(document).ready(function () {
   });
 });
 
+/* ---------- SSE логи ---------- */
 let logStream = null;
 function showLog(id) {
   $('#logModalId').text(id);
@@ -212,9 +597,7 @@ function showLog(id) {
   logStream = new EventSource(`/logs/${id}/stream`);
   logStream.onmessage = (e) => {
     if (e.data === '[END]') {
-      logStream.close();
-      logStream = null;
-      return;
+      logStream.close(); logStream = null; return;
     }
     body.textContent += e.data + '\n';
     body.scrollTop = body.scrollHeight;
@@ -225,6 +608,7 @@ function showLog(id) {
   };
 }
 
+/* ---------- Действия ---------- */
 function repeatDeploy(id) {
   if (!confirm('Повторить запуск #' + id + '?')) return;
   const f = document.createElement('form');
@@ -243,6 +627,7 @@ function cancelDeploy(id) {
     });
 }
 
+/* ---------- Live statuses ---------- */
 function updateStatuses() {
   fetch('/api/statuses')
     .then(res => res.json())
@@ -262,30 +647,25 @@ function updateStatuses() {
 
           const sLower = newStatus.toLowerCase();
           let targetCategory = 'error';
-          let badgeClass = 'bg-danger';
+          let badgeClass = 'st-error';
 
           if (sLower.includes('успеш')) {
-            targetCategory = 'ok';
-            badgeClass = 'bg-success';
+            targetCategory = 'ok'; badgeClass = 'st-ok';
           } else if (sLower.includes('в процессе')) {
-            targetCategory = 'progress';
-            badgeClass = 'bg-warning text-dark';
+            targetCategory = 'progress'; badgeClass = 'st-progress';
           } else if (sLower.includes('частично')) {
-            targetCategory = 'partial';
-            badgeClass = 'bg-info text-dark';
+            targetCategory = 'partial'; badgeClass = 'st-partial';
           }
 
           row.find('td:eq(6)').text(newDuration);
 
           if (currentStatusAttr !== targetCategory) {
             row.attr('data-status', targetCategory);
-            row.find('td:eq(4)').html(`<span class="badge ${badgeClass}">${newStatus}</span>`);
-            if (targetCategory !== 'progress') {
-               row.find('.btn-outline-danger').remove();
-            }
+            row.find('td:eq(4)').html(`<span class="st ${badgeClass}">${newStatus}</span>`);
+            if (targetCategory !== 'progress') row.find('.js-cancel').remove();
             needsRefilter = true;
           } else {
-            row.find('td:eq(4) .badge').text(newStatus);
+            row.find('td:eq(4) .st').text(newStatus);
           }
         }
       });
