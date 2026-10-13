@@ -73,6 +73,7 @@
       <button class="btn btn-sm btn-outline-secondary filter-btn active" data-status="all">Все</button>
       <button class="btn btn-sm btn-outline-warning filter-btn" data-status="progress">В процессе</button>
       <button class="btn btn-sm btn-outline-success filter-btn" data-status="ok">Успешно</button>
+      <button class="btn btn-sm btn-outline-info filter-btn" data-status="partial">Частично</button>
       <button class="btn btn-sm btn-outline-danger filter-btn" data-status="error">Ошибки</button>
       <button onclick="window.location.reload();" class="btn btn-outline-secondary btn-sm fw-bold">🔄 Обновить</button>
     </div>
@@ -96,6 +97,9 @@
           {% elif 'в процессе' in s_lower %}
             {% set tr_status = 'progress' %}
             {% set badge_class = 'bg-warning text-dark' %}
+          {% elif 'частично' in s_lower %}
+            {% set tr_status = 'partial' %}
+            {% set badge_class = 'bg-info text-dark' %}
           {% else %}
             {% set tr_status = 'error' %}
             {% set badge_class = 'bg-danger' %}
@@ -266,6 +270,9 @@ function updateStatuses() {
           } else if (sLower.includes('в процессе')) {
             targetCategory = 'progress';
             badgeClass = 'bg-warning text-dark';
+          } else if (sLower.includes('частично')) {
+            targetCategory = 'partial';
+            badgeClass = 'bg-info text-dark';
           }
 
           row.find('td:eq(6)').text(newDuration);

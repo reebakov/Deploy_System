@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import signal
 import subprocess
 import time
@@ -23,6 +24,42 @@ ANSIBLE_RC = {
 
 def get_ansible_status(code: int) -> str:
     return ANSIBLE_RC.get(code, f"Неизвестный код {code}")
+
+def get_detailed_status(rc: int, log_file: Path) -> str:
+    base_status = get_ansible_status(rc)
+    # Коды 2 и 3 означают ошибки на хостах. Если код другой или лога нет, отдаем дефолт
+    if rc not in (2, 3) or not log_file or not log_file.exists():
+        return base_status
+    
+    try:
+        content = log_file.read_text(errors="replace")
+        if "PLAY RECAP" not in content:
+            return base_status
+        
+        recap_block = content.split("PLAY RECAP")[-1]
+        
+        success_hosts = 0
+        failed_hosts = 0
+        
+        for line in recap_block.splitlines():
+            line = line.strip()
+            if not line or ":" not in line or "ok=" not in line:
+                continue
+                
+            # Ищем failed=1+, unreachable=1+ или ok=1+
+            if re.search(r'failed=[1-9]\d*', line) or re.search(r'unreachable=[1-9]\d*', line):
+                failed_hosts += 1
+            elif re.search(r'ok=[1-9]\d*', line):
+                success_hosts += 1
+                
+        if success_hosts > 0 and failed_hosts > 0:
+            return f"Частично ({success_hosts} ок, {failed_hosts} fail)"
+        elif success_hosts == 0 and failed_hosts > 0:
+            return f"Все failed ({failed_hosts} шт)"
+    except Exception as e:
+        log.warning("Ошибка парсинга лога для статуса: %s", e)
+        
+    return base_status
 
 def _log_path(log_id: int) -> Path:
     return DEPLOY_LOG_DIR / f"deploy_{log_id}.log"
@@ -70,7 +107,7 @@ def run_and_wait_detached(ansible_cmd: list[str], log_id: int, timeout: int = AN
 
         try:
             rc = proc.wait(timeout=timeout)
-            status = get_ansible_status(rc)
+            status = get_detailed_status(rc, log_file)
         except subprocess.TimeoutExpired:
             try:
                 os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
@@ -90,7 +127,6 @@ def run_ansible_blocking(ansible_cmd: list[str], log_id: int = None, timeout: in
     """Синхронный запуск для бота."""
     log_file = _log_path(log_id) if log_id else None
     
-    # ИЗМЕНЕНИЕ: открываем в режиме "a" (дозапись), чтобы не стереть мысли бота!
     f = open(log_file, "a") if log_file else None
     
     if f:
@@ -122,7 +158,9 @@ def run_ansible_blocking(ansible_cmd: list[str], log_id: int = None, timeout: in
         finally:
             if f:
                 f.close()
-        return rc, (out or ""), get_ansible_status(rc)
+        
+        status = get_detailed_status(rc, log_file) if log_file else get_ansible_status(rc)
+        return rc, (out or ""), status
     except Exception as e:
         if f:
             f.close()
