@@ -429,7 +429,36 @@ body{
   transform:translateY(-50%) rotate(45deg);
 }
 .egg-bubble.show{ opacity:1; transform:translateY(-50%) scale(1); }
-@media (prefers-reduced-motion:reduce){ .egg-face{ animation:none; } }
+
+/* реакции на статус деплоя */
+.egg.rage .egg-face{
+  filter:saturate(2.2) hue-rotate(-28deg);
+  animation:egg-rage .35s linear infinite;
+}
+.egg.rage{ animation:egg-redglow .5s ease-in-out infinite alternate; }
+.egg.disco .egg-face{ animation:egg-dance .6s ease-in-out infinite, egg-hue 1.5s linear infinite; }
+.egg.disco{ animation:egg-neon 1.2s linear infinite; }
+@keyframes egg-rage{
+  0%,100%{ transform:translate(0,0) rotate(0) scale(1.07); }
+  20%{ transform:translate(-4%,1%) rotate(-5deg) scale(1.09); }
+  40%{ transform:translate(4%,-1%) rotate(5deg) scale(1.09); }
+  60%{ transform:translate(-4%,-1%) rotate(-5deg) scale(1.09); }
+  80%{ transform:translate(4%,1%) rotate(5deg) scale(1.09); }
+}
+@keyframes egg-redglow{
+  from{ box-shadow:inset 0 0 0 rgba(239,68,68,0); }
+  to{ box-shadow:inset 0 0 14px rgba(239,68,68,.7); }
+}
+@keyframes egg-dance{
+  0%,100%{ transform:rotate(-9deg) translateY(0) scale(1.03,.97); }
+  50%{ transform:rotate(9deg) translateY(-6%) scale(.97,1.05); }
+}
+@keyframes egg-hue{ to{ filter:hue-rotate(360deg) saturate(1.5); } }
+@keyframes egg-neon{
+  0%{ box-shadow:inset 0 0 14px #f0f; } 33%{ box-shadow:inset 0 0 14px #0ff; }
+  66%{ box-shadow:inset 0 0 14px #ff0; } 100%{ box-shadow:inset 0 0 14px #f0f; }
+}
+@media (prefers-reduced-motion:reduce){ .egg-face, .egg{ animation:none !important; } }
 </style>
 </head>
 <body>
@@ -664,7 +693,15 @@ document.getElementById('theme-toggle').addEventListener('click', function () {
 (function () {
   const btn = document.getElementById('egg-btn'),
         bubble = document.getElementById('egg-bubble');
-  let t;
+  let t, reactTimer;
+  /* kind: 'rage' (ошибка деплоя) | 'disco' (успех), по 3 секунды */
+  window.eggReact = function (kind, ms = 3000) {
+    btn.classList.remove('rage', 'disco', 'nod');
+    void btn.offsetWidth;
+    btn.classList.add(kind);
+    clearTimeout(reactTimer);
+    reactTimer = setTimeout(() => btn.classList.remove(kind), ms);
+  };
   btn.addEventListener('click', function () {
     btn.classList.remove('nod'); void btn.offsetWidth; btn.classList.add('nod');
     setTimeout(() => btn.classList.remove('nod'), 560);
@@ -900,6 +937,8 @@ function updateStatuses() {
             row.find('td:eq(4)').html(`<span class="st ${badgeClass}">${newStatus}</span>`);
             if (targetCategory !== 'progress') row.find('.js-cancel').remove();
             flashRow(row);
+            if (targetCategory === 'error') window.eggReact && window.eggReact('rage');
+            else if (targetCategory === 'ok') window.eggReact && window.eggReact('disco');
             needsRefilter = true;
           } else {
             row.find('td:eq(4) .st').text(newStatus);
