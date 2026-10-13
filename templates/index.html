@@ -15,58 +15,35 @@
 <style>
 /* ================= TOKENS ================= */
 :root{
-  --bg:#fafafa;
-  --panel:#ffffff;
-  --panel-2:#f4f4f5;
-  --line:#e5e5e5;
-  --line-2:#d4d4d4;
-  --ink:#0a0a0a;
-  --ink-2:#525252;
-  --ink-3:#8a8a8a;
-  --accent:#059669;
-  --accent-2:#10b981;
+  --bg:#fafafa; --panel:#ffffff; --panel-2:#f4f4f5;
+  --line:#e5e5e5; --line-2:#d4d4d4;
+  --ink:#0a0a0a; --ink-2:#525252; --ink-3:#8a8a8a;
+  --accent:#059669; --accent-2:#10b981;
   --accent-soft:rgba(5,150,105,.08);
   --accent-ring:rgba(5,150,105,.18);
-  --danger:#dc2626;
-  --danger-soft:rgba(220,38,38,.08);
-  --warn:#d97706;
-  --warn-soft:rgba(217,119,6,.09);
-  --info:#0891b2;
-  --info-soft:rgba(8,145,178,.09);
-  --radius:8px;
-  --radius-lg:10px;
+  --danger:#dc2626; --danger-soft:rgba(220,38,38,.08);
+  --warn:#d97706; --warn-soft:rgba(217,119,6,.09);
+  --info:#0891b2; --info-soft:rgba(8,145,178,.09);
+  --radius:8px; --radius-lg:10px;
   --shadow:0 1px 2px rgba(0,0,0,.04);
 }
 [data-bs-theme="dark"]{
-  --bg:#09090b;
-  --panel:#101012;
-  --panel-2:#18181b;
-  --line:#1f1f23;
-  --line-2:#2a2a2f;
-  --ink:#fafafa;
-  --ink-2:#a1a1aa;
-  --ink-3:#71717a;
-  --accent:#10b981;
-  --accent-2:#34d399;
-  --accent-soft:rgba(16,185,129,.09);
-  --accent-ring:rgba(16,185,129,.22);
-  --danger:#f87171;
-  --danger-soft:rgba(248,113,113,.1);
-  --warn:#fbbf24;
-  --warn-soft:rgba(251,191,36,.1);
-  --info:#38bdf8;
-  --info-soft:rgba(56,189,248,.1);
+  --bg:#09090b; --panel:#101012; --panel-2:#18181b;
+  --line:#1f1f23; --line-2:#2a2a2f;
+  --ink:#fafafa; --ink-2:#a1a1aa; --ink-3:#71717a;
+  --accent:#10b981; --accent-2:#34d399;
+  --accent-soft:rgba(16,185,129,.09); --accent-ring:rgba(16,185,129,.22);
+  --danger:#f87171; --danger-soft:rgba(248,113,113,.1);
+  --warn:#fbbf24; --warn-soft:rgba(251,191,36,.1);
+  --info:#38bdf8; --info-soft:rgba(56,189,248,.1);
 }
 
 *{ -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; }
 html,body{ height:100%; }
 body{
   font-family:'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif;
-  background:var(--bg);
-  color:var(--ink);
-  font-size:.875rem;
-  line-height:1.5;
-  letter-spacing:-.005em;
+  background:var(--bg); color:var(--ink);
+  font-size:.875rem; line-height:1.5; letter-spacing:-.005em;
   transition:background .15s ease, color .15s ease;
 }
 ::selection{ background:var(--accent-soft); color:var(--accent); }
@@ -102,11 +79,7 @@ body{
   display:inline-flex; align-items:center; gap:7px;
   transition:color .12s, background .12s;
 }
-.nav-a i{
-  font-size:.95rem; line-height:1;
-  opacity:.7;
-  transition:opacity .12s, color .12s;
-}
+.nav-a i{ font-size:.95rem; line-height:1; opacity:.7; transition:opacity .12s, color .12s; }
 .nav-a:hover{ color:var(--ink); background:var(--panel-2); }
 .nav-a:hover i{ opacity:1; }
 .nav-a.active{ color:var(--ink); background:var(--panel-2); font-weight:600; }
@@ -117,41 +90,32 @@ body{
   display:inline-grid; place-items:center;
   border:1px solid var(--line); border-radius:6px;
   background:transparent; color:var(--ink-2);
-  cursor:pointer; font-size:.9rem;
-  transition:.12s;
+  cursor:pointer; font-size:.9rem; transition:.12s;
 }
 .iconb:hover{ background:var(--panel-2); color:var(--ink); border-color:var(--line-2); }
 
 /* ================= LAYOUT ================= */
 .page{ max-width:1400px; margin:0 auto; padding:36px 28px 72px; }
 .head{ margin-bottom:32px; }
-.head h1{
-  font-size:1.375rem; font-weight:600;
-  letter-spacing:-.02em; margin:0 0 4px;
-}
+.head h1{ font-size:1.375rem; font-weight:600; letter-spacing:-.02em; margin:0 0 4px; }
 .head p{ color:var(--ink-3); font-size:.8125rem; margin:0; }
 
 /* ================= PANEL ================= */
 .panel{
-  background:var(--panel);
-  border:1px solid var(--line);
-  border-radius:var(--radius-lg);
-  overflow:hidden;
+  background:var(--panel); border:1px solid var(--line);
+  border-radius:var(--radius-lg); overflow:hidden;
 }
 .panel + .panel{ margin-top:20px; }
 .panel-h{
   display:flex; align-items:center; gap:8px;
   padding:12px 18px;
   border-bottom:1px solid var(--line);
-  font-size:.75rem; font-weight:600;
-  color:var(--ink-2);
-  letter-spacing:.02em;
-  text-transform:uppercase;
+  font-size:.75rem; font-weight:600; color:var(--ink-2);
+  letter-spacing:.02em; text-transform:uppercase;
 }
 .panel-h i{ color:var(--accent); font-size:.9rem; }
 .panel-h .h-tag{
-  margin-left:auto;
-  font-size:.6875rem; font-weight:500;
+  margin-left:auto; font-size:.6875rem; font-weight:500;
   color:var(--ink-3); text-transform:none; letter-spacing:0;
   font-family:'JetBrains Mono',monospace;
 }
@@ -159,26 +123,18 @@ body{
 
 /* ================= FORM ================= */
 .lbl{
-  display:block;
-  font-size:.6875rem; font-weight:600;
+  display:block; font-size:.6875rem; font-weight:600;
   letter-spacing:.06em; text-transform:uppercase;
-  color:var(--ink-3);
-  margin-bottom:6px;
+  color:var(--ink-3); margin-bottom:6px;
 }
 .inp,.sel{
-  width:100%;
-  background:var(--panel);
-  color:var(--ink);
-  border:1px solid var(--line);
-  border-radius:var(--radius);
-  padding:.5rem .7rem;
-  font-size:.8125rem;
-  font-family:inherit;
+  width:100%; background:var(--panel); color:var(--ink);
+  border:1px solid var(--line); border-radius:var(--radius);
+  padding:.5rem .7rem; font-size:.8125rem; font-family:inherit;
   transition:border-color .12s, box-shadow .12s, background .12s;
 }
 .inp:focus,.sel:focus{
-  outline:none;
-  border-color:var(--accent);
+  outline:none; border-color:var(--accent);
   box-shadow:0 0 0 3px var(--accent-ring);
 }
 .inp::placeholder{ color:var(--ink-3); }
@@ -188,25 +144,21 @@ body{
 .btn-acc{
   display:inline-flex; align-items:center; gap:6px;
   background:var(--accent); color:#fff;
-  border:1px solid var(--accent);
-  border-radius:var(--radius);
-  padding:.5rem .9rem;
-  font-size:.8125rem; font-weight:600;
-  font-family:inherit; cursor:pointer;
-  transition:.12s;
+  border:1px solid var(--accent); border-radius:var(--radius);
+  padding:.5rem .9rem; font-size:.8125rem; font-weight:600;
+  font-family:inherit; cursor:pointer; transition:.12s;
 }
 .btn-acc:hover{ background:var(--accent-2); border-color:var(--accent-2); color:#fff; }
 .btn-acc:active{ transform:translateY(1px); }
+.btn-acc.is-danger{ background:var(--danger); border-color:var(--danger); }
+.btn-acc.is-danger:hover{ filter:brightness(1.08); }
 
 .btn-ghost{
   display:inline-flex; align-items:center; justify-content:center; gap:6px;
   background:transparent; color:var(--ink-2);
-  border:1px solid var(--line);
-  border-radius:6px;
-  padding:.28rem .6rem;
-  font-size:.75rem; font-weight:500;
-  font-family:inherit; cursor:pointer;
-  transition:.12s;
+  border:1px solid var(--line); border-radius:6px;
+  padding:.28rem .6rem; font-size:.75rem; font-weight:500;
+  font-family:inherit; cursor:pointer; transition:.12s;
   text-decoration:none;
 }
 .btn-ghost:hover{ background:var(--panel-2); color:var(--ink); border-color:var(--line-2); }
@@ -220,52 +172,44 @@ body{
   gap:16px; margin:28px 0 14px; flex-wrap:wrap;
 }
 .toolbar h2{
-  font-size:.9375rem; font-weight:600;
-  letter-spacing:-.01em; margin:0;
-  display:inline-flex; align-items:center; gap:8px;
+  font-size:.9375rem; font-weight:600; letter-spacing:-.01em;
+  margin:0; display:inline-flex; align-items:center; gap:8px;
 }
 .toolbar h2 i{ color:var(--accent); font-size:1rem; }
 .toolbar-right{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 .seg{
-  display:inline-flex; gap:1px;
-  background:var(--panel-2);
-  border:1px solid var(--line);
-  border-radius:var(--radius);
-  padding:2px;
+  display:inline-flex; gap:1px; background:var(--panel-2);
+  border:1px solid var(--line); border-radius:var(--radius); padding:2px;
 }
 .seg .filter-btn{
   background:transparent; border:0; cursor:pointer;
   font-family:inherit; font-size:.75rem; font-weight:500;
-  color:var(--ink-3);
-  padding:.32rem .7rem; border-radius:6px;
+  color:var(--ink-3); padding:.32rem .7rem; border-radius:6px;
   transition:.12s;
 }
 .seg .filter-btn:hover{ color:var(--ink); }
 .seg .filter-btn.active{
   background:var(--panel); color:var(--ink);
-  font-weight:600;
-  box-shadow:var(--shadow);
+  font-weight:600; box-shadow:var(--shadow);
 }
 
 /* ================= TABLE ================= */
 .table-h{ overflow-x:auto; }
 #logsTable{ --bs-table-bg:transparent; --bs-table-color:var(--ink); margin:0 !important; }
 #logsTable thead th{
-  background:transparent !important;
-  color:var(--ink-3);
+  background:transparent !important; color:var(--ink-3);
   font-size:.6875rem; font-weight:600;
   letter-spacing:.05em; text-transform:uppercase;
   padding:.75rem 1rem;
   border-bottom:1px solid var(--line) !important;
-  white-space:nowrap;
-  text-align:left;
+  white-space:nowrap; text-align:left;
 }
 #logsTable tbody td{
-  padding:.7rem 1rem;
-  font-size:.8125rem;
+  padding:.7rem 1rem; font-size:.8125rem;
   vertical-align:middle;
   border-bottom:1px solid var(--line);
   color:var(--ink);
+  transition:background .15s;
 }
 #logsTable tbody tr:last-child td{ border-bottom:0; }
 #logsTable tbody tr:hover td{ background:var(--panel-2); }
@@ -273,6 +217,16 @@ body{
 #logsTable a:hover{ text-decoration:underline; }
 .c-id{ color:var(--ink-3); font-variant-numeric:tabular-nums; font-size:.75rem; }
 .c-mut{ color:var(--ink-3); font-size:.75rem; }
+
+/* Flash для свежих/обновлённых строк */
+@keyframes row-flash{
+  0%   { background-color: var(--accent-soft); }
+  60%  { background-color: var(--accent-soft); }
+  100% { background-color: transparent; }
+}
+#logsTable tbody tr.flash td{
+  animation: row-flash 2s cubic-bezier(.4,0,.2,1);
+}
 
 /* DataTables */
 .dataTables_wrapper .row:first-child{ padding:14px 18px 6px; margin:0; align-items:center; }
@@ -315,6 +269,7 @@ body{
   font-size:.6875rem; font-weight:600;
   line-height:1.5; white-space:nowrap;
   border:1px solid transparent;
+  position:relative;
 }
 .st::before{
   content:""; width:5px; height:5px; border-radius:50%;
@@ -328,40 +283,105 @@ body{
 [data-bs-theme="dark"] .st-partial{ border-color:rgba(56,189,248,.25); }
 [data-bs-theme="dark"] .st-error{ border-color:rgba(248,113,113,.25); }
 
+/* Progress: пульсирующая точка + анимированная полоска снизу */
+.st-progress::before{ animation: st-dot 1.4s ease-in-out infinite; }
+@keyframes st-dot{
+  0%,100%{ opacity:1; transform:scale(1); }
+  50%    { opacity:.4; transform:scale(.7); }
+}
+.st-progress::after{
+  content:""; position:absolute;
+  left:6px; right:6px; bottom:-3px;
+  height:2px; border-radius:2px;
+  background:var(--warn);
+  transform-origin:left center;
+  animation: st-bar 1.6s ease-in-out infinite;
+}
+@keyframes st-bar{
+  0%   { transform:scaleX(0); transform-origin:left center; }
+  50%  { transform:scaleX(1); transform-origin:left center; }
+  51%  { transform-origin:right center; }
+  100% { transform:scaleX(0); transform-origin:right center; }
+}
+
 /* ================= MODAL / LOG ================= */
 .modal-content{
-  background:var(--panel);
-  border:1px solid var(--line);
-  border-radius:12px;
-  color:var(--ink);
+  background:var(--panel); border:1px solid var(--line);
+  border-radius:12px; color:var(--ink);
 }
 .modal-header,.modal-footer{ border-color:var(--line); }
-.modal-header{ padding:14px 18px; }
-.modal-title{ font-size:.875rem; font-weight:600; letter-spacing:-.01em; }
+.modal-header{ padding:14px 18px; display:flex; align-items:center; gap:12px; }
+.modal-title{ font-size:.875rem; font-weight:600; letter-spacing:-.01em; margin:0; }
 .modal-title code{
   color:var(--accent); font-family:'JetBrains Mono',monospace;
   font-size:.8125rem;
 }
 [data-bs-theme="dark"] .btn-close{ filter:invert(1) brightness(1.6); }
 
+/* Confirm modal */
+#confirmModal .modal-content{ border-radius:12px; }
+#confirmModal .modal-body{ padding:18px; font-size:.8125rem; color:var(--ink-2); }
+#confirmModal .modal-body b{ color:var(--ink); }
+#confirmModal .modal-footer{ padding:12px 18px; gap:8px; }
+#confirmModal .modal-title{ font-size:.875rem; }
+
+/* Log output */
 .log-output{
-  background:var(--panel-2);
-  color:var(--ink);
-  border:1px solid var(--line);
-  border-radius:8px;
-  padding:14px 16px;
-  margin:0;
+  background:var(--panel-2); color:var(--ink);
+  border:1px solid var(--line); border-radius:8px;
+  padding:14px 16px; margin:0;
   font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;
-  font-size:.75rem;
-  line-height:1.7;
-  max-height:60vh;
-  overflow-y:auto;
-  white-space:pre-wrap;
-  word-break:break-word;
+  font-size:.75rem; line-height:1.7;
+  max-height:60vh; overflow-y:auto;
+  white-space:pre-wrap; word-break:break-word;
 }
 .log-output::-webkit-scrollbar{ width:8px; }
 .log-output::-webkit-scrollbar-thumb{ background:var(--line-2); border-radius:4px; }
 .log-output::-webkit-scrollbar-track{ background:transparent; }
+
+/* Skeleton для логов */
+.log-skeleton{
+  background:var(--panel-2); border:1px solid var(--line);
+  border-radius:8px; padding:18px 16px;
+}
+.sk-line{
+  height:10px; border-radius:4px; margin-bottom:10px;
+  background:linear-gradient(90deg, var(--line) 0%, var(--line-2) 50%, var(--line) 100%);
+  background-size:200% 100%;
+  animation: sk 1.4s ease infinite;
+}
+.sk-line:last-child{ margin-bottom:0; width:45%; }
+@keyframes sk{
+  0%   { background-position:200% 0; }
+  100% { background-position:-200% 0; }
+}
+
+/* ================= TOAST ================= */
+#toast-container{
+  position:fixed; bottom:20px; right:20px; z-index:2050;
+  display:flex; flex-direction:column; gap:8px;
+  pointer-events:none;
+}
+.toast-item{
+  display:flex; align-items:center; gap:10px;
+  background:var(--panel); border:1px solid var(--line);
+  border-radius:var(--radius);
+  padding:.65rem .9rem;
+  font-size:.8125rem; font-weight:500;
+  color:var(--ink);
+  box-shadow:0 6px 20px rgba(0,0,0,.08);
+  min-width:220px; max-width:360px;
+  transform:translateX(120%); opacity:0;
+  transition:transform .28s cubic-bezier(.4,0,.2,1), opacity .28s;
+  pointer-events:auto;
+}
+[data-bs-theme="dark"] .toast-item{ box-shadow:0 6px 24px rgba(0,0,0,.5); }
+.toast-item.show{ transform:translateX(0); opacity:1; }
+.toast-item i{ font-size:1rem; flex:none; }
+.toast-info i{ color:var(--info); }
+.toast-success i{ color:var(--accent); }
+.toast-error i{ color:var(--danger); }
+.toast-warn i{ color:var(--warn); }
 </style>
 </head>
 <body>
@@ -525,14 +545,48 @@ body{
           <i class="bi bi-terminal me-1"></i>
           Логи запуска #<code id="logModalId"></code>
         </h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        <div class="d-flex align-items-center gap-2 ms-auto">
+          <button class="btn-ghost" id="copyLogBtn" type="button">
+            <i class="bi bi-clipboard"></i>
+            <span>Копировать</span>
+          </button>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
       </div>
       <div class="modal-body">
-        <pre id="logModalBody" class="log-output">Загрузка...</pre>
+        <div id="logSkeleton" class="log-skeleton">
+          <div class="sk-line" style="width:35%"></div>
+          <div class="sk-line" style="width:80%"></div>
+          <div class="sk-line" style="width:60%"></div>
+          <div class="sk-line" style="width:72%"></div>
+          <div class="sk-line" style="width:50%"></div>
+          <div class="sk-line"></div>
+        </div>
+        <pre id="logModalBody" class="log-output d-none"></pre>
       </div>
     </div>
   </div>
 </div>
+
+<!-- ============ CONFIRM MODAL ============ -->
+<div class="modal fade" id="confirmModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered modal-sm">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="confirmTitle">Подтверждение</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="confirmBody">Вы уверены?</div>
+      <div class="modal-footer">
+        <button type="button" class="btn-ghost" data-bs-dismiss="modal">Отмена</button>
+        <button type="button" class="btn-acc" id="confirmOk">Подтвердить</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ TOASTS ============ -->
+<div id="toast-container"></div>
 
 <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
 <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
@@ -552,9 +606,59 @@ document.getElementById('theme-toggle').addEventListener('click', function () {
   localStorage.setItem('theme', next);
 });
 
+/* ---------- Toast ---------- */
+function toast(msg, type = 'info', ms = 3200) {
+  const c = document.getElementById('toast-container');
+  const t = document.createElement('div');
+  const icons = {
+    info:'bi-info-circle', success:'bi-check-circle-fill',
+    error:'bi-exclamation-octagon-fill', warn:'bi-exclamation-triangle-fill'
+  };
+  t.className = 'toast-item toast-' + type;
+  t.innerHTML = `<i class="bi ${icons[type] || icons.info}"></i><span>${msg}</span>`;
+  c.appendChild(t);
+  requestAnimationFrame(() => t.classList.add('show'));
+  setTimeout(() => {
+    t.classList.remove('show');
+    setTimeout(() => t.remove(), 320);
+  }, ms);
+}
+
+/* ---------- Confirm dialog (promise) ---------- */
+function confirmDialog(opts) {
+  return new Promise(resolve => {
+    const el = document.getElementById('confirmModal');
+    const m  = bootstrap.Modal.getOrCreateInstance(el);
+    document.getElementById('confirmTitle').textContent = opts.title || 'Подтверждение';
+    document.getElementById('confirmBody').innerHTML = opts.message || 'Вы уверены?';
+    const ok = document.getElementById('confirmOk');
+    ok.textContent = opts.okText || 'Подтвердить';
+    ok.className = 'btn-acc' + (opts.danger ? ' is-danger' : '');
+
+    let decided = false;
+    const onOk = () => { decided = true; cleanup(); m.hide(); resolve(true); };
+    const onHidden = () => { cleanup(); if (!decided) resolve(false); };
+    const cleanup = () => {
+      ok.removeEventListener('click', onOk);
+      el.removeEventListener('hidden.bs.modal', onHidden);
+    };
+    ok.addEventListener('click', onOk);
+    el.addEventListener('hidden.bs.modal', onHidden);
+    m.show();
+  });
+}
+
+/* ---------- Flash ---------- */
+function flashRow($row, ms = 2100) {
+  if (!$row || !$row.length) return;
+  $row.addClass('flash');
+  setTimeout(() => $row.removeClass('flash'), ms);
+}
+
 /* ---------- DataTable ---------- */
+let logsTable = null;
 $(document).ready(function () {
-  const table = $('#logsTable').DataTable({
+  logsTable = $('#logsTable').DataTable({
     language: { url: "//cdn.datatables.net/plug-ins/1.13.6/i18n/ru.json" },
     lengthMenu: [[25, 50, 100, 200, -1], [25, 50, 100, 200, "Все"]],
     pageLength: 25,
@@ -564,7 +668,7 @@ $(document).ready(function () {
 
   let currentFilter = 'all';
   window.applyFilter = function () {
-    table.rows().every(function () {
+    logsTable.rows().every(function () {
       const st = this.node().getAttribute('data-status');
       const show = currentFilter === 'all' || st === currentFilter;
       $(this.node()).toggle(show);
@@ -581,36 +685,91 @@ $(document).ready(function () {
   $('#deploy_type').on('change', function () {
     $('#skip_tags_block').toggleClass('d-none', this.value !== 'full');
   });
+
+  /* Подсветить самую свежую запись при загрузке */
+  let maxId = -1, maxRow = null;
+  logsTable.rows().every(function () {
+    const node = this.node();
+    const id = parseInt($(node).find('td:eq(0)').text().trim(), 10);
+    if (!isNaN(id) && id > maxId) { maxId = id; maxRow = node; }
+  });
+  if (maxRow) {
+    setTimeout(() => flashRow($(maxRow)), 150);
+  }
 });
 
-/* ---------- SSE логи ---------- */
+/* ---------- Копирование логов ---------- */
+document.getElementById('copyLogBtn').addEventListener('click', async function () {
+  const text = document.getElementById('logModalBody').textContent || '';
+  if (!text.trim()) { toast('Логи ещё пустые', 'warn'); return; }
+  try {
+    await navigator.clipboard.writeText(text);
+    const icon  = this.querySelector('i');
+    const label = this.querySelector('span');
+    icon.className = 'bi bi-check-lg';
+    label.textContent = 'Скопировано';
+    toast('Логи скопированы в буфер', 'success', 2200);
+    setTimeout(() => {
+      icon.className = 'bi bi-clipboard';
+      label.textContent = 'Копировать';
+    }, 1600);
+  } catch (e) {
+    toast('Не удалось скопировать', 'error');
+  }
+});
+
+/* ---------- SSE логи + skeleton ---------- */
 let logStream = null;
 function showLog(id) {
   $('#logModalId').text(id);
   const body = document.getElementById('logModalBody');
-  const modal = new bootstrap.Modal(document.getElementById('logModal'));
+  const sk   = document.getElementById('logSkeleton');
+  const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('logModal'));
   modal.show();
 
   if (logStream) { logStream.close(); logStream = null; }
   body.textContent = '';
+  body.classList.add('d-none');
+  sk.classList.remove('d-none');
+
+  let gotFirst = false;
+  const revealBody = () => {
+    if (gotFirst) return;
+    gotFirst = true;
+    sk.classList.add('d-none');
+    body.classList.remove('d-none');
+  };
 
   logStream = new EventSource(`/logs/${id}/stream`);
   logStream.onmessage = (e) => {
     if (e.data === '[END]') {
-      logStream.close(); logStream = null; return;
+      revealBody();
+      logStream.close(); logStream = null;
+      return;
     }
+    revealBody();
     body.textContent += e.data + '\n';
     body.scrollTop = body.scrollHeight;
   };
   logStream.onerror = () => {
-    body.textContent += '\n[соединение закрыто]';
+    if (!gotFirst) {
+      body.textContent = '[соединение закрыто]\n';
+    } else {
+      body.textContent += '\n[соединение закрыто]';
+    }
+    revealBody();
     if (logStream) { logStream.close(); logStream = null; }
   };
 }
 
 /* ---------- Действия ---------- */
-function repeatDeploy(id) {
-  if (!confirm('Повторить запуск #' + id + '?')) return;
+async function repeatDeploy(id) {
+  const ok = await confirmDialog({
+    title: 'Повторить запуск?',
+    message: `Создать новый запуск на основе <b>#${id}</b>?`,
+    okText: 'Повторить'
+  });
+  if (!ok) return;
   const f = document.createElement('form');
   f.method = 'POST';
   f.action = '/repeat/' + id;
@@ -618,16 +777,25 @@ function repeatDeploy(id) {
   f.submit();
 }
 
-function cancelDeploy(id) {
-  if (!confirm('Отменить запуск #' + id + '?')) return;
-  fetch('/cancel/' + id, { method: 'POST' })
-    .then(r => r.json())
-    .then(d => {
-      if (!d.cancelled) alert('Не удалось отменить (процесс уже завершён?)');
-    });
+async function cancelDeploy(id) {
+  const ok = await confirmDialog({
+    title: 'Отменить запуск?',
+    message: `Прервать выполнение <b>#${id}</b>?`,
+    okText: 'Отменить',
+    danger: true
+  });
+  if (!ok) return;
+  try {
+    const r = await fetch('/cancel/' + id, { method: 'POST' });
+    const d = await r.json();
+    if (d.cancelled) toast(`Запуск #${id} отменён`, 'success');
+    else             toast(`Не удалось отменить #${id} — процесс уже завершён`, 'warn');
+  } catch (e) {
+    toast('Ошибка при отмене', 'error');
+  }
 }
 
-/* ---------- Live statuses ---------- */
+/* ---------- Live statuses + flash ---------- */
 function updateStatuses() {
   fetch('/api/statuses')
     .then(res => res.json())
@@ -638,10 +806,10 @@ function updateStatuses() {
         const row = $(this);
         const idText = row.find('td:eq(0)').text().trim();
         if (!idText) return;
-        const id = parseInt(idText);
+        const id = parseInt(idText, 10);
 
         if (data[id]) {
-          const newStatus = data[id].status;
+          const newStatus  = data[id].status;
           const newDuration = data[id].duration;
           const currentStatusAttr = row.attr('data-status');
 
@@ -663,6 +831,7 @@ function updateStatuses() {
             row.attr('data-status', targetCategory);
             row.find('td:eq(4)').html(`<span class="st ${badgeClass}">${newStatus}</span>`);
             if (targetCategory !== 'progress') row.find('.js-cancel').remove();
+            flashRow(row);
             needsRefilter = true;
           } else {
             row.find('td:eq(4) .st').text(newStatus);
