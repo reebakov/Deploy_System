@@ -19,7 +19,15 @@ log = setup_logging()
 IQL_FREE_PC = (
     'objectType = "Automat" AND Status = "Ожидает" AND '
     'Type IN ("Host Emulator", "Physical") AND '
-    '"Видеокарта" IN ("Intel HD Graphics 630", "HD Graphics 630", "NVIDIA GeForce GT 1030")'
+    '"Видеокарта" IN ('
+    '"Intel UHD Graphics 630", '
+    '"Intel UHD Graphics 730", '
+    '"Intel HD Graphics 630", '
+    '"HD Graphics 630", '
+    '"NVIDIA GeForce GT 710", '
+    '"NVIDIA GeForce GT 1030", '
+    '"NVIDIA GeForce GTX 1050 Ti", '
+    '"NVIDIA GeForce GTX 1650")'
 )
 
 PC_PATTERN = re.compile(r'\b[AaАа]\d{2,}\b')
