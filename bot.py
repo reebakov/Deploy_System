@@ -314,7 +314,7 @@ def process_issue(jira, issue) -> bool:
             f"@silent ✅ **Задача закрыта:** **{issue.key}**\n"
             f"💻 **ПК:** {target_pcs}\n"
             f"🛠 **Тип:** {task_type}\n"
-            f"👤 **Исполнитель:** {JIRA_USER}\n"
+            f"👤 **Исполнитель:** `{JIRA_USER}`\n"
             f"💬 **Комментарий:** {comment_text}"
         )
 
