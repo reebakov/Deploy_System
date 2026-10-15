@@ -478,6 +478,14 @@ body{
       Inventory
     </a>
     <div class="top-right">
+      <!-- ТУМБЛЕР АВТО-БОТА -->
+      <div class="form-check form-switch me-3 d-flex align-items-center" style="margin-bottom: 0;">
+        <input class="form-check-input mt-0 me-2" type="checkbox" role="switch" id="botToggleSwitch" style="cursor: pointer;">
+        <label class="form-check-label mb-0" for="botToggleSwitch" style="font-size: .8125rem; font-weight: 600; color: var(--ink-2); cursor: pointer;">
+          Авто-бот
+        </label>
+      </div>
+      <!-- /ТУМБЛЕР АВТО-БОТА -->
       <div class="egg-wrap">
         <div class="egg-bubble" id="egg-bubble" role="status">По любым проблемам с гегешкой, обращаться к Костяну.</div>
         <button class="egg" id="egg-btn" type="button" aria-label="Пасхалка">
@@ -952,6 +960,44 @@ function updateStatuses() {
     })
     .catch(err => console.error("Ошибка при обновлении статусов", err));
 }
+
+/* ---------- Тумблер Авто-Бота ---------- */
+$(document).ready(function () {
+  const $botToggle = $('#botToggleSwitch');
+
+  // При загрузке страницы узнаем статус бота
+  fetch('/api/bot/status')
+    .then(res => res.json())
+    .then(data => {
+      $botToggle.prop('checked', data.enabled);
+    })
+    .catch(err => console.error("Ошибка при получении статуса бота", err));
+
+  // При клике на тумблер отправляем новый статус на сервер
+  $botToggle.on('change', function () {
+    const isEnabled = $(this).is(':checked');
+    
+    // Блокируем кнопку на время отправки запроса
+    $botToggle.prop('disabled', true); 
+
+    $.post('/api/bot/toggle', { enabled: isEnabled })
+      .done(function (data) {
+        $botToggle.prop('checked', data.enabled);
+        if (data.enabled) {
+          toast('Авто-бот ВКЛЮЧЕН. Задачи будут браться автоматически.', 'success');
+        } else {
+          toast('Авто-бот ВЫКЛЮЧЕН. Ручной режим.', 'warn');
+        }
+      })
+      .fail(function () {
+        toast('Ошибка при переключении бота', 'error');
+        $botToggle.prop('checked', !isEnabled); // возвращаем обратно при ошибке
+      })
+      .always(function () {
+        $botToggle.prop('disabled', false); // разблокируем
+      });
+  });
+});
 
 setInterval(updateStatuses, 3000);
 </script>

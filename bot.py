@@ -2,7 +2,7 @@ import logging
 import re
 from ansible_runner import run_ansible_blocking, _log_path
 from config import (
-    ACCOUNTS_FIELD_ID, EPIC_FIELD_ID,
+    BASE_DIR, ACCOUNTS_FIELD_ID, EPIC_FIELD_ID,
     PLAYBOOK_MOBIDESK, PLAYBOOK_OPENSSH, POKER_FIELD_ID,
     PROBLEM_DESC_FIELD_ID, ROLE_FIELD_ID, SKIP_TAGS_DEFAULT,
     STATE_FIELD_ID, TARGET_GROUP, JIRA_USER,
@@ -311,6 +311,18 @@ def process_issue(jira, issue) -> bool:
 
 def bot_job():
     log.info("Jira worker started via APScheduler")
+
+        # --- ПРОВЕРКА ТУМБЛЕРА ---
+    state_file = BASE_DIR / "bot_status.txt"
+    # Если файл есть и там "0", бот спит. 
+    # Так как ты просил выключить сейчас, если файла нет - создадим его выключенным
+    if not state_file.exists():
+        state_file.write_text("0")
+        
+    if state_file.read_text().strip() == "0":
+        log.info("Авто-бот выключен тумблером. Спим...")
+        return
+    # -------------------------
     
     # 1. Защита от параллельных запусков
     db = SessionLocal()

@@ -173,6 +173,24 @@ def api_statuses(user: str = Depends(check_auth)):
     finally:
         db.close()
 
+# ==========================================
+# ЭНДПОИНТЫ ДЛЯ ТУМБЛЕРА БОТА
+# ==========================================
+@app.get("/api/bot/status")
+def get_bot_status(user: str = Depends(check_auth)):
+    state_file = BASE_DIR / "bot_status.txt"
+    # Если файла нет, по умолчанию отдаем False (выключен)
+    is_enabled = False if not state_file.exists() or state_file.read_text().strip() == "0" else True
+    return {"enabled": is_enabled}
+
+@app.post("/api/bot/toggle")
+def toggle_bot(enabled: str = Form(...), user: str = Depends(check_auth)):
+    is_enabled = (enabled.lower() == "true")
+    state_file = BASE_DIR / "bot_status.txt"
+    state_file.write_text("1" if is_enabled else "0")
+    return {"enabled": is_enabled}
+# ==========================================        
+
 
 def _build_manual_cmd(deploy_type: str, pcs: list[str], skip_tags: str):
     target = ",".join(pcs)
