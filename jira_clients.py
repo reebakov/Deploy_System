@@ -20,10 +20,7 @@ def get_jira() -> JIRA:
     return JIRA(server=JIRA_SERVER, basic_auth=(JIRA_USER, JIRA_TOKEN))
 
 
-INSIGHT_HEADERS = {
-    "Authorization": f"Bearer {JIRA_2_TOKEN}",
-    "Accept": "application/json"
-}
+INSIGHT_AUTH = HTTPBasicAuth(JIRA_2_USER, JIRA_2_TOKEN)
 
 
 @retry(
@@ -36,7 +33,7 @@ def insight_search(iql: str, result_per_page: int = 500) -> list[dict]:
     r = requests.get(
         f"{JIRA_2_SERVER}/rest/insight/1.0/iql/objects",
         params={"iql": iql, "resultPerPage": result_per_page},
-        headers=INSIGHT_HEADERS,
+        auth=INSIGHT_AUTH,
         timeout=15,
     )
     r.raise_for_status()
@@ -59,7 +56,7 @@ def insight_update_pc(object_id: str) -> bool:
              "objectAttributeValues": [{"value": INSIGHT_ROOM_VALUE}]},
         ]
     }
-    r = requests.put(url, json=payload, headers=INSIGHT_HEADERS, timeout=15)
+    r = requests.put(url, json=payload, auth=INSIGHT_AUTH, timeout=15)
     r.raise_for_status()  # Гарантирует, что retry сработает на 4xx/5xx ошибках
     return r.status_code in (200, 201, 202, 204)
 
@@ -80,6 +77,6 @@ def insight_revert_pc(object_id: str) -> bool:
              "objectAttributeValues": []}, 
         ]
     }
-    r = requests.put(url, json=payload, headers=INSIGHT_HEADERS, timeout=15)
+    r = requests.put(url, json=payload, auth=INSIGHT_AUTH, timeout=15)
     r.raise_for_status()
     return r.status_code in (200, 201, 202, 204)
