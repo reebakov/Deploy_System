@@ -245,6 +245,43 @@ def process_issue(jira, issue) -> bool:
     if rc == 0:
         L(f"\n✅ Деплой завершен без ошибок! Закрываем задачу в Jira...")
         
+        # ========================================================
+        # НОВЫЙ БЛОК: АВТОМАТИЧЕСКОЕ ЗАПОЛНЕНИЕ ТАБЛИЦЫ В JIRA
+        # ========================================================
+        if scenario == "C" and selected_pcs:
+            old_desc = issue.fields.description or ""
+            lines = old_desc.split('\n')
+            new_lines = []
+            pc_idx = 0
+
+            for line in lines:
+                stripped = line.strip()
+                # Ищем строку таблицы с данными (начинается с |, но не с || - это заголовки)
+                if stripped.startswith('|') and not stripped.startswith('||'):
+                    cells = line.split('|')
+                    # cells[1] - это содержимое первой ячейки (колонки "ИМ")
+                    if len(cells) > 1 and pc_idx < len(selected_pcs):
+                        first_cell = cells[1].strip()
+                        # Если ячейка пустая или содержит пробелы/&nbsp;
+                        if not first_cell or first_cell == '&nbsp;':
+                            cells[1] = f" {selected_pcs[pc_idx]} "  # Вписываем комп
+                            line = '|'.join(cells)
+                            pc_idx += 1
+                new_lines.append(line)
+
+            # Если компов оказалось больше, чем пустых строк в таблице
+            if pc_idx < len(selected_pcs):
+                new_lines.append("\n*Дополнительные ПК:* " + ", ".join(selected_pcs[pc_idx:]))
+
+            new_desc = '\n'.join(new_lines)
+
+            # Сохраняем новое описание в Jira
+            try:
+                issue.update(description=new_desc)
+                L(f"📝 Описание задачи обновлено. ПК вписаны в таблицу: {', '.join(selected_pcs[:pc_idx])}")
+            except Exception as e:
+                L(f"⚠️ Не удалось обновить описание задачи (возможно нет прав на ред.): {e}")
+        
         if scenario == "A":
             comment_text = "Комп(ы) передеплоены. Готовы к игре."
         elif scenario == "B":
