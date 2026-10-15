@@ -1,5 +1,6 @@
 import logging
 import sys
+import os
 
 _configured = False
 
@@ -17,6 +18,7 @@ def setup_logging(log_file: str = '/var/log/deploy-bot.log') -> logging.Logger:
     root.addHandler(sh)
 
     try:
+        os.makedirs(os.path.dirname(log_file), exist_ok=True)
         fh = logging.FileHandler(log_file)
         fh.setFormatter(fmt)
         root.addHandler(fh)

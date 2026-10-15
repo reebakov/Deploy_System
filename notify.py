@@ -1,7 +1,5 @@
 import logging
-
 import requests
-
 from config import MATTERMOST_WEBHOOK
 
 log = logging.getLogger(__name__)

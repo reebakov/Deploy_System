@@ -5,7 +5,7 @@ from config import (
     ACCOUNTS_FIELD_ID, EPIC_FIELD_ID,
     PLAYBOOK_MOBIDESK, PLAYBOOK_OPENSSH, POKER_FIELD_ID,
     PROBLEM_DESC_FIELD_ID, ROLE_FIELD_ID, SKIP_TAGS_DEFAULT,
-    STATE_FIELD_ID, TARGET_GROUP, JIRA_USER,  # ДОБАВЛЕН JIRA_USER
+    STATE_FIELD_ID, TARGET_GROUP, JIRA_USER,
 )
 from database import DeployLog, SessionLocal
 from inventory_manager import add_pcs_to_inventory, check_pcs_in_inventory
@@ -19,10 +19,15 @@ log = setup_logging()
 IQL_FREE_PC = (
     'objectType = "Automat" AND Status = "Ожидает" AND '
     'Type IN ("Host Emulator", "Physical") AND '
-    '"Видеокарта" IN ("Intel HD Graphics 630", "NVIDIA GeForce GT 1030")'
+    '"Видеокарта" IN ("Intel Graphics", "NVIDIA GeForce GT 1030")'
 )
 
-PC_PATTERN = re.compile(r'\b[AaАа]\d+\b')
+PC_PATTERN = re.compile(r'\b[AaАа]\d{2,}\b')
+
+
+def sanitize_pc_name(name: str) -> str:
+    """Заменяет кириллическую 'А' на латинскую и переводит в верхний регистр."""
+    return name.upper().replace('А', 'A').strip()
 
 
 def classify_issue(issue):
@@ -49,7 +54,8 @@ def classify_issue(issue):
 
 
 def extract_pcs(text: str) -> list[str]:
-    return sorted({m.upper() for m in PC_PATTERN.findall(text)})
+    raw_matches = PC_PATTERN.findall(text)
+    return sorted({sanitize_pc_name(m) for m in raw_matches})
 
 
 def ensure_in_inventory(pcs: list[str], L) -> bool:
@@ -69,7 +75,7 @@ def ensure_in_inventory(pcs: list[str], L) -> bool:
 def pick_free_pcs(need: int, L) -> list[dict]:
     L(f"🔍 Требуется подобрать ПК: {need} шт. Идем в Insight...")
     try:
-        objects = insight_search(IQL_FREE_PC, result_per_page=50)
+        objects = insight_search(IQL_FREE_PC, result_per_page=500)
     except Exception as e:
         L(f"❌ Ошибка получения данных из Insight: {e}")
         return []
@@ -149,7 +155,9 @@ def process_issue(jira, issue) -> bool:
         jira_key=issue.key,
         task_type=task_type,
         target_pcs="Подбор ПК...",
-        status="Инициализация"
+        status="Инициализация",
+        deploy_type="full" if scenario == "C" else "room_only",
+        skip_tags=SKIP_TAGS_DEFAULT if scenario == "C" else None
     )
     db.add(new_log); db.commit(); db.refresh(new_log)
     log_id = new_log.id
@@ -166,6 +174,13 @@ def process_issue(jira, issue) -> bool:
             pass
 
     L(f"--- Задача [{issue.key}] {issue.fields.summary} — {task_type} ---")
+    
+    # 1. Присваиваем задачу боту во избежание зацикливания, если мы упадем до конца.
+    try:
+        jira.assign_issue(issue.key, JIRA_USER)
+        L(f"👤 Задача взята в работу ({JIRA_USER}).")
+    except Exception as e:
+        L(f"⚠️ Не удалось назначить задачу: {e}. Продолжаем.")
 
     selected_pcs_dicts = []
     selected_pcs = []
@@ -175,10 +190,15 @@ def process_issue(jira, issue) -> bool:
         if not pcs:
             L("❌ ОШИБКА: ПК в описании не найдены!")
             _update_db_status(log_id, "Ошибка: нет ПК")
+            jira.add_comment(issue.key, "❌ Бот не смог найти имена ПК (формата A105) в описании задачи.")
+            send_mattermost(f"⚠️ **Внимание:** Бот не нашел имена ПК в задаче {issue.key}")
             return True
+            
         L(f"💻 ПК из задачи: {', '.join(pcs)}")
         if not ensure_in_inventory(pcs, L):
             _update_db_status(log_id, "Ошибка инвентаря")
+            jira.add_comment(issue.key, "❌ Ошибка при добавлении ПК в файл инвентаря.")
+            send_mattermost(f"⚠️ **Внимание:** Ошибка инвентаря для {issue.key}")
             return True
         selected_pcs = pcs
 
@@ -189,17 +209,25 @@ def process_issue(jira, issue) -> bool:
         except (TypeError, ValueError):
             L(f"❌ Некорректное количество ПК: {raw_count!r}")
             _update_db_status(log_id, "Ошибка парсинга")
+            jira.add_comment(issue.key, f"❌ Некорректное количество ПК: {raw_count!r}")
             return True
 
         selected_pcs_dicts = pick_free_pcs(need, L)
         selected_pcs = [p["name"] for p in selected_pcs_dicts]
         if len(selected_pcs) < need:
-            L(f"❌ Найдено {len(selected_pcs)} из {need}. Отмена.")
+            L(f"❌ Найдено {len(selected_pcs)} из {need}. Отмена. Откатываем статусы...")
+            for pc_data in selected_pcs_dicts:
+                insight_revert_pc(pc_data["id"])
             _update_db_status(log_id, "Отмена: нехватка ПК", ",".join(selected_pcs) or "N/A")
+            jira.add_comment(issue.key, f"❌ Найдено только {len(selected_pcs)} из {need} нужных ПК. Деплой отменен.")
+            send_mattermost(f"⚠️ **Внимание:** Нехватка ПК ({len(selected_pcs)}/{need}) для {issue.key}")
             return True
 
         run_ssh_init_if_needed(selected_pcs, L)
         if not ensure_in_inventory(selected_pcs, L):
+            L("\n⚠️ Ошибка записи в инвентарь. Откатываем ПК...")
+            for pc_data in selected_pcs_dicts:
+                insight_revert_pc(pc_data["id"])
             _update_db_status(log_id, "Ошибка инвентаря", ",".join(selected_pcs))
             return True
 
@@ -214,11 +242,9 @@ def process_issue(jira, issue) -> bool:
 
     mm_text = ""
 
-    # Если всё прошло ИДЕАЛЬНО (код 0)
     if rc == 0:
         L(f"\n✅ Деплой завершен без ошибок! Закрываем задачу в Jira...")
         
-        # Определяем текст комментария
         if scenario == "A":
             comment_text = "Комп(ы) передеплоены. Готовы к игре."
         elif scenario == "B":
@@ -229,18 +255,9 @@ def process_issue(jira, issue) -> bool:
             comment_text = "Задача успешно выполнена."
 
         try:
-            # 1. Назначаем задачу на себя (на логин из конфига)
-            try:
-                jira.assign_issue(issue.key, JIRA_USER)
-                L(f"👤 Задача назначена на {JIRA_USER}.")
-            except Exception as e:
-                L(f"⚠️ Не удалось назначить задачу на {JIRA_USER}: {e}")
-
-            # 2. Оставляем коммент
             jira.add_comment(issue.key, comment_text)
             L(f"💬 Оставлен комментарий: {comment_text}")
             
-            # 3. Ищем нужный транзишн (кнопку перевода статуса)
             transitions = jira.transitions(issue)
             target_id = None
             for t in transitions:
@@ -248,7 +265,6 @@ def process_issue(jira, issue) -> bool:
                     target_id = t['id']
                     break
             
-            # 4. Переводим статус
             if target_id:
                 jira.transition_issue(issue, target_id)
                 L(f"🔒 Задача успешно переведена в статус 'Готово'.")
@@ -257,7 +273,6 @@ def process_issue(jira, issue) -> bool:
         except Exception as e:
             L(f"❌ Ошибка при закрытии задачи в Jira: {e}")
 
-        # Формируем сообщение для MM о том, что всё закрыто
         mm_text = (
             f"@silent ✅ **Задача закрыта:** **{issue.key}**\n"
             f"💻 **ПК:** {target_pcs}\n"
@@ -266,17 +281,20 @@ def process_issue(jira, issue) -> bool:
             f"💬 **Комментарий:** {comment_text}"
         )
 
-    # Если была ОШИБКА Ansible
     else:
         if scenario == "C":
-            L("\n⚠️ Ошибка деплоя. Возвращаем статус ПК в Insight на 'Ожидает'...")
-            for pc_data in selected_pcs_dicts:
-                if insight_revert_pc(pc_data["id"]):
-                    L(f"   └ Статус {pc_data['name']} успешно откачен.")
-                else:
-                    L(f"   └ Ошибка отката статуса для {pc_data['name']}.")
+            if "Частично" in status:
+                L("\n⚠️ Частичный успех. Не откатываем ПК в Insight автоматически. Проверьте руками.")
+                jira.add_comment(issue.key, f"⚠️ Деплой завершен частично ({status}). Проверьте логи.")
+            else:
+                L("\n⚠️ Ошибка деплоя. Возвращаем статус ПК в Insight на 'Ожидает'...")
+                for pc_data in selected_pcs_dicts:
+                    if insight_revert_pc(pc_data["id"]):
+                        L(f"   └ Статус {pc_data['name']} успешно откачен.")
+                    else:
+                        L(f"   └ Ошибка отката статуса для {pc_data['name']}.")
+                jira.add_comment(issue.key, f"❌ Ошибка выполнения Ansible. ПК откреплены.")
                     
-        # Формируем тревожное сообщение для MM
         mm_text = (
             f"@here ❌ **Ошибка деплоя:** **{issue.key}**\n"
             f"💻 **ПК:** {target_pcs}\n"
@@ -286,8 +304,6 @@ def process_issue(jira, issue) -> bool:
 
     L(f"\n🏁 Финальный статус: {status}")
     _update_db_status(log_id, status)
-
-    # Отправляем сообщение в MM только в самом конце
     send_mattermost(mm_text)
     
     return True
@@ -295,6 +311,17 @@ def process_issue(jira, issue) -> bool:
 
 def bot_job():
     log.info("Jira worker started via APScheduler")
+    
+    # 1. Защита от параллельных запусков
+    db = SessionLocal()
+    active = db.query(DeployLog).filter(
+        DeployLog.status.in_(["В процессе (Ansible)", "Инициализация"])
+    ).first()
+    db.close()
+    if active:
+        log.info("Another deploy is currently running. Skipping bot tick.")
+        return
+
     try:
         jira = get_jira()
     except Exception:
@@ -313,6 +340,7 @@ def bot_job():
         try:
             if process_issue(jira, issue):
                 processed_any = True
+                break # Обрабатываем по одной задаче за тик
         except Exception:
             log.exception("Unhandled error on %s", issue.key)
             db = SessionLocal()

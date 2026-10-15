@@ -4,6 +4,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+BASE_DIR = Path(__file__).resolve().parent
+
 # --- Jira 1 (issues) ---
 JIRA_SERVER = os.getenv('JIRA_1_SERVER', 'https://jira.getcom.pw')
 JIRA_USER   = os.getenv('JIRA_1_USER')

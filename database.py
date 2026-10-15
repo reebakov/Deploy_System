@@ -1,11 +1,18 @@
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text
 from sqlalchemy.orm import declarative_base, sessionmaker
 from sqlalchemy import inspect, text
+from config import BASE_DIR
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./deploy_logs.db")
+_db_path = os.getenv("DATABASE_URL")
+if not _db_path:
+    # Делаем путь к sqlite абсолютным относительно папки проекта
+    _sqlite_path = BASE_DIR / "deploy_logs.db"
+    DATABASE_URL = f"sqlite:///{_sqlite_path}"
+else:
+    DATABASE_URL = _db_path
 
 engine = create_engine(
     DATABASE_URL,
@@ -27,9 +34,9 @@ class DeployLog(Base):
     deploy_type    = Column(String, nullable=True)
     pid            = Column(Integer, nullable=True)
     log_file       = Column(String, nullable=True)
-    ansible_output = Column(Text, nullable=True) # Оставляем колонку, чтобы не ломать старую БД SQLite
-    created_at     = Column(DateTime, default=datetime.utcnow)
-    updated_at     = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    ansible_output = Column(Text, nullable=True)
+    created_at     = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at     = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 def init_db():
@@ -54,10 +61,9 @@ def _migrate():
 
 
 def cleanup_old_logs(days: int = 90) -> int:
-    """Удаляет старые записи из БД и физические файлы логов с диска."""
     db = SessionLocal()
     try:
-        cutoff = datetime.utcnow() - timedelta(days=days)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
         old_logs = db.query(DeployLog).filter(DeployLog.created_at < cutoff).all()
         count = 0
         for l in old_logs:

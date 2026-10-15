@@ -1,5 +1,4 @@
 import logging
-
 import requests
 from jira import JIRA
 from requests.auth import HTTPBasicAuth
@@ -9,6 +8,7 @@ from tenacity import (retry, retry_if_exception_type, stop_after_attempt,
 from config import (
     INSIGHT_ROOM_ATTR_ID, INSIGHT_ROOM_VALUE,
     INSIGHT_STATUS_ATTR_ID, INSIGHT_STATUS_USED_VALUE,
+    INSIGHT_STATUS_FREE_VALUE,
     JIRA_2_SERVER, JIRA_2_TOKEN, JIRA_2_USER,
     JIRA_SERVER, JIRA_TOKEN, JIRA_USER,
 )
@@ -29,7 +29,7 @@ INSIGHT_AUTH = HTTPBasicAuth(JIRA_2_USER, JIRA_2_TOKEN)
     retry=retry_if_exception_type(requests.RequestException),
     reraise=True,
 )
-def insight_search(iql: str, result_per_page: int = 50) -> list[dict]:
+def insight_search(iql: str, result_per_page: int = 500) -> list[dict]:
     r = requests.get(
         f"{JIRA_2_SERVER}/rest/insight/1.0/iql/objects",
         params={"iql": iql, "resultPerPage": result_per_page},
@@ -57,9 +57,9 @@ def insight_update_pc(object_id: str) -> bool:
         ]
     }
     r = requests.put(url, json=payload, auth=INSIGHT_AUTH, timeout=15)
+    r.raise_for_status()  # Гарантирует, что retry сработает на 4xx/5xx ошибках
     return r.status_code in (200, 201, 202, 204)
 
-from config import INSIGHT_STATUS_FREE_VALUE # Не забудь добавить в импорт
 
 @retry(
     stop=stop_after_attempt(3),
@@ -74,8 +74,9 @@ def insight_revert_pc(object_id: str) -> bool:
             {"objectTypeAttributeId": INSIGHT_STATUS_ATTR_ID,
              "objectAttributeValues": [{"value": INSIGHT_STATUS_FREE_VALUE}]},
             {"objectTypeAttributeId": INSIGHT_ROOM_ATTR_ID,
-             "objectAttributeValues": []}, # Пустой список очистит поле рума
+             "objectAttributeValues": []}, 
         ]
     }
     r = requests.put(url, json=payload, auth=INSIGHT_AUTH, timeout=15)
+    r.raise_for_status()
     return r.status_code in (200, 201, 202, 204)

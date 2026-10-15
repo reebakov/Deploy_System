@@ -126,7 +126,6 @@ def add_pcs_to_inventory(pc_list: list[str], target_group: str = TARGET_GROUP) -
             log.warning("Group %s not found, appending at the end", target_group)
             new_lines = lines + ['', target_group] + all_hosts
 
-        # Бэкап инвентаря
         if INVENTORY_PATH.exists():
             backup_path = INVENTORY_PATH.with_suffix('.bak')
             try:

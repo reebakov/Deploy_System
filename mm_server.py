@@ -2,12 +2,10 @@ import asyncio
 import os
 import secrets
 from contextlib import asynccontextmanager
-from datetime import timezone
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
-from pathlib import Path
 
-from fastapi import (BackgroundTasks, Depends, FastAPI, Form, HTTPException,
-                     Request)
+from fastapi import (BackgroundTasks, Depends, FastAPI, Form, HTTPException, Request)
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
@@ -15,17 +13,17 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 from ansible_runner import cancel_deploy, run_and_wait_detached
 from config import (
-    DASH_PASS, DASH_USER, INVENTORY_PATH, JIRA_SERVER, LOG_RETENTION_DAYS,
+    BASE_DIR, DASH_PASS, DASH_USER, INVENTORY_PATH, JIRA_SERVER, LOG_RETENTION_DAYS,
     PLAYBOOK_MOBIDESK, PLAYBOOK_OPENSSH, SKIP_TAGS_DEFAULT, TARGET_GROUP,
     DEPLOY_LOG_DIR,
 )
 from database import DeployLog, SessionLocal, cleanup_old_logs
 from inventory_manager import parse_inventory, check_pcs_in_inventory, add_pcs_to_inventory
 from logging_setup import setup_logging
-from bot import bot_job
+from bot import bot_job, sanitize_pc_name
 
 log = setup_logging()
-templates = Jinja2Templates(directory="templates")
+templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 security = HTTPBasic()
 
 
@@ -39,9 +37,19 @@ def check_auth(creds: HTTPBasicCredentials = Depends(security)) -> str:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Очистка зависших статусов после рестарта сервиса
+    db = SessionLocal()
+    try:
+        stuck_logs = db.query(DeployLog).filter(DeployLog.status.like("%В процессе%")).all()
+        for sl in stuck_logs:
+            sl.status = "Прервано (рестарт)"
+        db.commit()
+    finally:
+        db.close()
+
     scheduler = BackgroundScheduler()
-    # Пока авто-бот закомментирован для тестов:
-    # scheduler.add_job(bot_job, 'interval', minutes=2, max_instances=1)
+    # Авто-бот (расписание на каждые 2 минуты)
+    scheduler.add_job(bot_job, 'interval', minutes=2, max_instances=1)
     scheduler.add_job(lambda: cleanup_old_logs(LOG_RETENTION_DAYS), 'interval', days=1)
     scheduler.start()
     
@@ -58,12 +66,12 @@ app = FastAPI(lifespan=lifespan)
 
 
 @app.get("/health")
-async def health():
+def health():
     return {"ok": True}
 
 
 @app.get("/", response_class=HTMLResponse)
-async def dashboard(request: Request, user: str = Depends(check_auth)):
+def dashboard(request: Request, user: str = Depends(check_auth)):
     db = SessionLocal()
     try:
         logs = db.query(DeployLog).order_by(DeployLog.id.desc()).limit(1000).all()
@@ -93,7 +101,7 @@ async def dashboard(request: Request, user: str = Depends(check_auth)):
 
 
 @app.get("/inventory", response_class=HTMLResponse)
-async def view_inventory(request: Request, user: str = Depends(check_auth)):
+def view_inventory(request: Request, user: str = Depends(check_auth)):
     groups = parse_inventory(INVENTORY_PATH)
     raw = INVENTORY_PATH.read_text() if INVENTORY_PATH.exists() else "Файл не найден."
 
@@ -114,7 +122,7 @@ async def view_inventory(request: Request, user: str = Depends(check_auth)):
 
 
 @app.post("/inventory/add")
-async def manual_inventory_add(
+def manual_inventory_add(
     new_pcs: str = Form(...),
     user: str = Depends(check_auth)
 ):
@@ -124,12 +132,14 @@ async def manual_inventory_add(
         if active_deploy:
             raise HTTPException(
                 status_code=400, 
-                detail="Инвентарь занят: выполняется деплой. Подождите завершения задачи, чтобы не нарушить работу Ansible."
+                detail="Инвентарь занят: выполняется деплой. Подождите завершения задачи."
             )
     finally:
         db.close()
 
-    pcs = [pc.strip().upper() for pc in new_pcs.replace(" ", ",").split(",") if pc.strip()]
+    pcs = [sanitize_pc_name(pc) for pc in new_pcs.replace(" ", ",").split(",") if pc.strip()]
+    pcs = [pc for pc in pcs if pc]
+    
     if not pcs:
         raise HTTPException(status_code=400, detail="Не указаны имена ПК")
 
@@ -143,7 +153,7 @@ async def manual_inventory_add(
 
 
 @app.get("/api/statuses")
-async def api_statuses(user: str = Depends(check_auth)):
+def api_statuses(user: str = Depends(check_auth)):
     db = SessionLocal()
     try:
         logs = db.query(DeployLog).order_by(DeployLog.id.desc()).limit(100).all()
@@ -184,29 +194,31 @@ def _build_manual_cmd(deploy_type: str, pcs: list[str], skip_tags: str):
 
 
 @app.post("/manual_deploy")
-async def manual_deploy(
+def manual_deploy(
     background_tasks: BackgroundTasks,
     target_pcs: str = Form(...),
     deploy_type: str = Form(...),
     skip_tags: str = Form(""),
     user: str = Depends(check_auth),
 ):
-    pcs = [pc.strip().upper() for pc in target_pcs.split(",") if pc.strip()]
+    pcs = [sanitize_pc_name(pc) for pc in target_pcs.split(",") if pc.strip()]
+    pcs = [pc for pc in pcs if pc]
     if not pcs:
         return RedirectResponse("/", status_code=303)
         
     db = SessionLocal()
     try:
-        active_deploy = db.query(DeployLog).filter(DeployLog.status.like("%В процессе%")).first()
+        active_deploy = db.query(DeployLog).filter(
+            DeployLog.status.in_(["В процессе (Ansible)", "Инициализация"])
+        ).first()
         if active_deploy:
             raise HTTPException(
                 status_code=400, 
-                detail="Инвентарь занят: в данный момент уже выполняется деплой. Дождитесь завершения, чтобы не возникло конфликтов."
+                detail="Инвентарь занят: в данный момент уже выполняется деплой. Дождитесь завершения."
             )
     finally:
         db.close()
 
-    # Проверяем и при необходимости добавляем ПК в инвентарь перед запуском деплоя
     found, missing = check_pcs_in_inventory(pcs)
     if missing:
         if not add_pcs_to_inventory(missing):
@@ -236,19 +248,22 @@ async def manual_deploy(
 
 
 @app.post("/repeat/{log_id}")
-async def repeat_deploy(log_id: int,
-                        background_tasks: BackgroundTasks,
-                        user: str = Depends(check_auth)):
+def repeat_deploy(log_id: int,
+                  background_tasks: BackgroundTasks,
+                  user: str = Depends(check_auth)):
     db = SessionLocal()
     try:
         old = db.query(DeployLog).filter(DeployLog.id == log_id).first()
         if not old:
             raise HTTPException(404)
-        pcs = [p.strip() for p in (old.target_pcs or "").split(",") if p.strip()]
+        pcs = [sanitize_pc_name(p) for p in (old.target_pcs or "").split(",") if p.strip()]
+        pcs = [p for p in pcs if p]
         dtype = old.deploy_type or "room_only"
         stags = old.skip_tags or ""
         
-        active_deploy = db.query(DeployLog).filter(DeployLog.status.like("%В процессе%")).first()
+        active_deploy = db.query(DeployLog).filter(
+            DeployLog.status.in_(["В процессе (Ansible)", "Инициализация"])
+        ).first()
         if active_deploy:
             raise HTTPException(
                 status_code=400, 
@@ -290,7 +305,7 @@ async def repeat_deploy(log_id: int,
 
 
 @app.post("/cancel/{log_id}")
-async def cancel(log_id: int, user: str = Depends(check_auth)):
+def cancel(log_id: int, user: str = Depends(check_auth)):
     ok = cancel_deploy(log_id)
     return {"cancelled": ok}
 
@@ -323,7 +338,7 @@ async def stream_logs(log_id: int, user: str = Depends(check_auth)):
                         cur_status = s.status if s else ""
                     finally:
                         db2.close()
-                    if "В процессе" not in (cur_status or ""):
+                    if "В процессе" not in (cur_status or "") and "Инициализация" not in (cur_status or ""):
                         yield "data: [END]\n\n"
                         break
                     await asyncio.sleep(1)

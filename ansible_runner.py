@@ -18,6 +18,8 @@ ANSIBLE_RC = {
     3:   "Машина(ы) unreachable (3)",
     4:   "Ошибка парсинга плейбука (4)",
     5:   "Неверные опции CLI (5)",
+    -15: "Прервано пользователем (SIGTERM)",
+    -9:  "Прервано пользователем (SIGKILL)",
     99:  "Прервано пользователем (99)",
     100: "Плейбук завершён с ошибками (100)",
 }
@@ -27,7 +29,6 @@ def get_ansible_status(code: int) -> str:
 
 def get_detailed_status(rc: int, log_file: Path) -> str:
     base_status = get_ansible_status(rc)
-    # Коды 2 и 3 означают ошибки на хостах. Если код другой или лога нет, отдаем дефолт
     if rc not in (2, 3) or not log_file or not log_file.exists():
         return base_status
     
@@ -46,7 +47,6 @@ def get_detailed_status(rc: int, log_file: Path) -> str:
             if not line or ":" not in line or "ok=" not in line:
                 continue
                 
-            # Ищем failed=1+, unreachable=1+ или ok=1+
             if re.search(r'failed=[1-9]\d*', line) or re.search(r'unreachable=[1-9]\d*', line):
                 failed_hosts += 1
             elif re.search(r'ok=[1-9]\d*', line):
@@ -124,9 +124,7 @@ def run_and_wait_detached(ansible_cmd: list[str], log_id: int, timeout: int = AN
         _save_result(log_id, "Критическая ошибка")
 
 def run_ansible_blocking(ansible_cmd: list[str], log_id: int = None, timeout: int = ANSIBLE_TIMEOUT) -> tuple[int, str, str]:
-    """Синхронный запуск для бота."""
     log_file = _log_path(log_id) if log_id else None
-    
     f = open(log_file, "a") if log_file else None
     
     if f:
@@ -140,7 +138,19 @@ def run_ansible_blocking(ansible_cmd: list[str], log_id: int = None, timeout: in
             stdout=f if f else subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            start_new_session=True 
         )
+        
+        if log_id:
+            db = SessionLocal()
+            try:
+                dblog = db.query(DeployLog).filter(DeployLog.id == log_id).first()
+                if dblog:
+                    dblog.pid = proc.pid
+                    db.commit()
+            finally:
+                db.close()
+
         try:
             if f:
                 rc = proc.wait(timeout=timeout)
@@ -149,7 +159,10 @@ def run_ansible_blocking(ansible_cmd: list[str], log_id: int = None, timeout: in
                 out, _ = proc.communicate(timeout=timeout)
                 rc = proc.returncode
         except subprocess.TimeoutExpired:
-            proc.kill()
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+            except ProcessLookupError:
+                pass
             if not f:
                 out, _ = proc.communicate()
             else:

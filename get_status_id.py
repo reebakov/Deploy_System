@@ -8,7 +8,6 @@
 """
 import os
 import sys
-
 import requests
 from dotenv import load_dotenv
 from requests.auth import HTTPBasicAuth
@@ -34,12 +33,7 @@ def insight_get(path: str, **params) -> dict:
     return r.json()
 
 
-def find_status_id_by_example(status_name: str,
-                              object_type: str = "Automat") -> int | None:
-    """
-    Находит любой объект с указанным статусом, читает его атрибут 589
-    и возвращает id статуса.
-    """
+def find_status_id_by_example(status_name: str, object_type: str = "Automat") -> int | None:
     iql = f'objectType = "{object_type}" AND Status = "{status_name}"'
     print(f"🔍 Ищем любой объект: {iql}")
 
@@ -53,7 +47,6 @@ def find_status_id_by_example(status_name: str,
     obj_id = obj["id"]
     print(f"   ✅ Найден объект: {obj.get('label')} (id={obj_id})")
 
-    # Полные данные объекта
     obj_full = insight_get(f"/object/{obj_id}")
 
     for attr in obj_full.get("attributes", []):
@@ -61,36 +54,19 @@ def find_status_id_by_example(status_name: str,
             continue
         values = attr.get("objectAttributeValues", [])
         if not values:
-            print("   ⚠️  Атрибут Status пуст.")
             return None
 
         status_ref = values[0].get("status") or {}
         sid = status_ref.get("id")
-        sname = status_ref.get("name")
-
+        
         if sid is None:
-            print("   ⚠️  В ссылке статуса нет поля id.")
             return None
-
-        if sname and sname.lower() != status_name.lower():
-            print(f"   ⚠️  Внимание: имя статуса у объекта '{sname}', "
-                  f"а искали '{status_name}'. Возможно, регистр/локализация.")
-
         return sid
-
-    print(f"   ⚠️  В объекте нет атрибута с objectTypeAttributeId={STATUS_ATTR_ID}")
     return None
 
 
-def find_status_id_via_objecttype_attribute(status_name: str,
-                                            object_type: str = "Automat") -> int | None:
-    """
-    Fallback: перебираем object types, у которых есть атрибут Статус,
-    и ищем в его допустимых значениях нужный статус.
-    """
+def find_status_id_via_objecttype_attribute(status_name: str, object_type: str = "Automat") -> int | None:
     print(f"\n🔍 Fallback: перебор допустимых значений атрибута Status у '{object_type}'")
-
-    # 1. Находим все object types
     types_data = insight_get("/objectschema/list")
     for schema in types_data.get("objectSchemas", []):
         schema_id = schema["id"]
@@ -102,11 +78,7 @@ def find_status_id_via_objecttype_attribute(status_name: str,
         for ot in type_list:
             if ot["name"].lower() != object_type.lower():
                 continue
-
             ot_id = ot["id"]
-            print(f"   Найден objectType '{ot['name']}' (id={ot_id})")
-
-            # 2. Ищем атрибут с именем Status и типом Status
             attrs = insight_get(f"/objecttype/{ot_id}/attributes")
             status_attr = None
             for a in attrs:
@@ -115,27 +87,17 @@ def find_status_id_via_objecttype_attribute(status_name: str,
                     break
 
             if not status_attr:
-                print("   ⚠️  Атрибут 'Status' не найден.")
                 continue
 
-            # 3. typeValue для Status-атрибута = ID objectType статусов
             status_ot_id = status_attr.get("typeValue")
             if not status_ot_id:
-                print("   ⚠️  У атрибута нет typeValue.")
                 continue
 
-            # 4. Ищем статус по имени
-            statuses = insight_get(f"/objecttype/{status_ot_id}/objects",
-                                   resultPerPage=500)
+            statuses = insight_get(f"/objecttype/{status_ot_id}/objects", resultPerPage=500)
             for s in statuses:
                 if s.get("label", "").lower() == status_name.lower():
                     print(f"   ✅ Найден: {s['label']} -> id={s['id']}")
                     return int(s["id"])
-
-            print(f"   ⚠️  Статус '{status_name}' не найден среди допустимых.")
-            return None
-
-    print("   ⚠️  ObjectType не найден.")
     return None
 
 
@@ -144,18 +106,16 @@ def main():
     object_type = sys.argv[2] if len(sys.argv) > 2 else "Automat"
 
     print(f"=== Поиск ID статуса '{status_name}' (objectType='{object_type}') ===\n")
-
     sid = find_status_id_by_example(status_name, object_type)
     if sid is None:
         sid = find_status_id_via_objecttype_attribute(status_name, object_type)
 
     print()
     if sid is not None:
-        print(f"🎯 ID статуса '{status_name}' = {sid}")
-        print()
+        print(f"🎯 ID статуса '{status_name}' = {sid}\n")
         print("Добавь в .env:")
         if status_name.lower() == "ожидает":
-            print(f"INSIGHT_STATUS_WAITING_VALUE={sid}")
+            print(f"INSIGHT_STATUS_FREE_VALUE={sid}")
         elif status_name.lower() == "используется":
             print(f"INSIGHT_STATUS_USED_VALUE={sid}")
         else:
