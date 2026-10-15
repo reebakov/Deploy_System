@@ -22,13 +22,16 @@ if not all([JIRA_2_SERVER, JIRA_2_USER, JIRA_2_TOKEN]):
     print("❌ Не заданы JIRA_2_SERVER / JIRA_2_USER / JIRA_2_TOKEN в .env")
     sys.exit(1)
 
-AUTH = HTTPBasicAuth(JIRA_2_USER, JIRA_2_TOKEN)
+HEADERS = {
+    "Authorization": f"Bearer {JIRA_2_TOKEN}",
+    "Accept": "application/json"
+}
 STATUS_ATTR_ID = 589  # атрибут 'Status' у объекта типа Automat
 
 
 def insight_get(path: str, **params) -> dict:
     url = f"{JIRA_2_SERVER}/rest/insight/1.0{path}"
-    r = requests.get(url, params=params, auth=AUTH, timeout=15)
+    r = requests.get(url, params=params, headers=HEADERS, timeout=15)
     r.raise_for_status()
     return r.json()
 
