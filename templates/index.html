@@ -704,6 +704,13 @@ body{
 
 <script>
 /* ---------- Mock API для работы без бэкенда (в превью) ---------- */
+// Храним настройки в памяти, чтобы они не сбрасывались в превью
+let mockSettings = { 
+  bot_enabled: true, 
+  full_args: "--skip-tags default", 
+  room_args: "--tags neoagent" 
+};
+
 const originalFetch = window.fetch;
 window.fetch = async function(url, options) {
   // Перехватываем относительные ссылки, чтобы избежать ошибки парсинга URL в blob-среде
@@ -713,13 +720,13 @@ window.fetch = async function(url, options) {
     }
     if (url === '/api/settings') {
       if (options && options.method === 'POST') {
+        const body = JSON.parse(options.body);
+        mockSettings.bot_enabled = body.bot_enabled;
+        mockSettings.full_args = body.full_args;
+        mockSettings.room_args = body.room_args;
         return new Response(JSON.stringify({status: "ok"}), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
-      return new Response(JSON.stringify({ 
-        bot_enabled: true, 
-        full_args: "--skip-tags default", 
-        room_args: "--tags neoagent" 
-      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      return new Response(JSON.stringify(mockSettings), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     if (url.startsWith('/cancel/')) {
       return new Response(JSON.stringify({cancelled: true}), { status: 200, headers: { 'Content-Type': 'application/json' } });
