@@ -1,6 +1,7 @@
 import asyncio
 import os
 import secrets
+import json
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
@@ -26,14 +27,12 @@ log = setup_logging()
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 security = HTTPBasic()
 
-
 def check_auth(creds: HTTPBasicCredentials = Depends(security)) -> str:
     ok_user = secrets.compare_digest(creds.username, DASH_USER)
     ok_pass = secrets.compare_digest(creds.password, DASH_PASS)
     if not (ok_user and ok_pass):
         raise HTTPException(status_code=401, headers={"WWW-Authenticate": "Basic"})
     return creds.username
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -61,14 +60,11 @@ async def lifespan(app: FastAPI):
     yield
     scheduler.shutdown()
 
-
 app = FastAPI(lifespan=lifespan)
-
 
 @app.get("/health")
 def health():
     return {"ok": True}
-
 
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request, user: str = Depends(check_auth)):
@@ -99,7 +95,6 @@ def dashboard(request: Request, user: str = Depends(check_auth)):
         },
     )
 
-
 @app.get("/inventory", response_class=HTMLResponse)
 def view_inventory(request: Request, user: str = Depends(check_auth)):
     groups = parse_inventory(INVENTORY_PATH)
@@ -119,7 +114,6 @@ def view_inventory(request: Request, user: str = Depends(check_auth)):
             "target_group": TARGET_GROUP,
         },
     )
-
 
 @app.post("/inventory/add")
 def manual_inventory_add(
@@ -151,7 +145,6 @@ def manual_inventory_add(
             
     return RedirectResponse("/inventory", status_code=303)
 
-
 @app.get("/api/statuses")
 def api_statuses(user: str = Depends(check_auth)):
     db = SessionLocal()
@@ -173,43 +166,68 @@ def api_statuses(user: str = Depends(check_auth)):
     finally:
         db.close()
 
-# ==========================================
-# ЭНДПОИНТЫ ДЛЯ ТУМБЛЕРА БОТА
-# ==========================================
-@app.get("/api/bot/status")
-def get_bot_status(user: str = Depends(check_auth)):
+def get_deploy_settings():
+    sfile = BASE_DIR / "deploy_settings.json"
+    if sfile.exists():
+        try:
+            return json.loads(sfile.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {
+        "full_args": f"--skip-tags {SKIP_TAGS_DEFAULT}",
+        "room_args": "--tags neoagent,clubgg,neoagent_account_shortcuts"
+    }
+
+@app.get("/api/settings")
+def api_get_settings(user: str = Depends(check_auth)):
     state_file = BASE_DIR / "bot_status.txt"
-    # Если файла нет, по умолчанию отдаем False (выключен)
     is_enabled = False if not state_file.exists() or state_file.read_text().strip() == "0" else True
-    return {"enabled": is_enabled}
+    settings = get_deploy_settings()
+    return {
+        "bot_enabled": is_enabled,
+        "full_args": settings.get("full_args", f"--skip-tags {SKIP_TAGS_DEFAULT}"),
+        "room_args": settings.get("room_args", "--tags neoagent,clubgg,neoagent_account_shortcuts")
+    }
 
-@app.post("/api/bot/toggle")
-def toggle_bot(enabled: str = Form(...), user: str = Depends(check_auth)):
-    is_enabled = (enabled.lower() == "true")
+@app.post("/api/settings")
+async def api_save_settings(request: Request, user: str = Depends(check_auth)):
+    data = await request.json()
+    
+    bot_enabled = data.get("bot_enabled", False)
     state_file = BASE_DIR / "bot_status.txt"
-    state_file.write_text("1" if is_enabled else "0")
-    return {"enabled": is_enabled}
-# ==========================================        
-
+    state_file.write_text("1" if bot_enabled else "0", encoding="utf-8")
+    
+    sfile = BASE_DIR / "deploy_settings.json"
+    sfile.write_text(json.dumps({
+        "full_args": data.get("full_args", ""),
+        "room_args": data.get("room_args", "")
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
+    
+    return {"status": "ok"}
 
 def _build_manual_cmd(deploy_type: str, pcs: list[str], skip_tags: str):
     target = ",".join(pcs)
+    settings = get_deploy_settings()
+    
     if deploy_type == "full":
         task_name = "Полный деплой"
         cmd = ["ansible-playbook", PLAYBOOK_MOBIDESK, "-e", f"target={target}"]
         if skip_tags.strip():
             cmd += ["--skip-tags", skip_tags.strip()]
+        else:
+            cmd += settings.get("full_args", f"--skip-tags {SKIP_TAGS_DEFAULT}").split()
+            
     elif deploy_type == "ssh":
         task_name = "Закинуть SSH"
         cmd = ["ansible-playbook", PLAYBOOK_OPENSSH, "-e", f"target={target}"]
     else:
         task_name = "Обновление рума"
-        cmd = ["ansible-playbook", PLAYBOOK_MOBIDESK, "-e", f"target={target}",
-               "--tags", "neoagent,clubgg,neoagent_account_shortcuts"]
+        cmd = ["ansible-playbook", PLAYBOOK_MOBIDESK, "-e", f"target={target}"]
+        cmd += settings.get("room_args", "--tags neoagent,clubgg,neoagent_account_shortcuts").split()
+        
     if len(pcs) > 1 and deploy_type != "ssh":
         cmd += ["-f", str(len(pcs))]
     return task_name, cmd
-
 
 @app.post("/manual_deploy")
 def manual_deploy(
@@ -263,7 +281,6 @@ def manual_deploy(
 
     background_tasks.add_task(run_and_wait_detached, cmd, log_id)
     return RedirectResponse("/", status_code=303)
-
 
 @app.post("/repeat/{log_id}")
 def repeat_deploy(log_id: int,
@@ -321,12 +338,10 @@ def repeat_deploy(log_id: int,
     background_tasks.add_task(run_and_wait_detached, cmd, new_id)
     return RedirectResponse("/", status_code=303)
 
-
 @app.post("/cancel/{log_id}")
 def cancel(log_id: int, user: str = Depends(check_auth)):
     ok = cancel_deploy(log_id)
     return {"cancelled": ok}
-
 
 @app.get("/logs/{log_id}/stream")
 async def stream_logs(log_id: int, user: str = Depends(check_auth)):

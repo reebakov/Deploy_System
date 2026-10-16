@@ -1,5 +1,6 @@
 import logging
 import re
+import json
 from ansible_runner import run_ansible_blocking, _log_path
 from config import (
     BASE_DIR, ACCOUNTS_FIELD_ID, EPIC_FIELD_ID,
@@ -32,11 +33,21 @@ IQL_FREE_PC = (
 
 PC_PATTERN = re.compile(r'\b[AaАа]\d{2,}\b')
 
+def get_deploy_settings():
+    sfile = BASE_DIR / "deploy_settings.json"
+    if sfile.exists():
+        try:
+            return json.loads(sfile.read_text(encoding="utf-8"))
+        except Exception as e:
+            log.warning(f"Failed to read deploy_settings.json: {e}")
+    return {
+        "full_args": f"--skip-tags {SKIP_TAGS_DEFAULT}",
+        "room_args": "--tags neoagent,clubgg,neoagent_account_shortcuts"
+    }
 
 def sanitize_pc_name(name: str) -> str:
     """Заменяет кириллическую 'А' на латинскую и переводит в верхний регистр."""
     return name.upper().replace('А', 'A').strip()
-
 
 def classify_issue(issue):
     desc = (issue.fields.description or "").lower()
@@ -60,11 +71,9 @@ def classify_issue(issue):
         return "C", "Деплой новых ПК", full_desc
     return None, None, full_desc
 
-
 def extract_pcs(text: str) -> list[str]:
     raw_matches = PC_PATTERN.findall(text)
     return sorted({sanitize_pc_name(m) for m in raw_matches})
-
 
 def ensure_in_inventory(pcs: list[str], L) -> bool:
     found, missing = check_pcs_in_inventory(pcs)
@@ -78,7 +87,6 @@ def ensure_in_inventory(pcs: list[str], L) -> bool:
         return False
     L(f"✅ ПК {', '.join(missing)} добавлены в инвентарь.")
     return True
-
 
 def pick_free_pcs(need: int, L) -> list[dict]:
     L(f"🔍 Требуется подобрать ПК: {need} шт. Идем в Insight...")
@@ -107,7 +115,6 @@ def pick_free_pcs(need: int, L) -> list[dict]:
             L(f"❌ ПК {name} не пингуется, ищем дальше.")
     return selected
 
-
 def run_ssh_init_if_needed(pcs: list[str], L):
     ssh_results = check_ssh_many(pcs)
     for p in pcs:
@@ -125,20 +132,20 @@ def run_ssh_init_if_needed(pcs: list[str], L):
     if rc != 0:
         L("⚠️ Ошибка SSH init. Продолжаем на свой страх и риск.")
 
-
 def build_ansible_cmd(scenario: str, target_pcs: str, pc_count: int) -> list[str]:
+    settings = get_deploy_settings()
+    cmd = ["ansible-playbook", PLAYBOOK_MOBIDESK, "-e", f"target={target_pcs}"]
+    
     if scenario == "C":
-        cmd = ["ansible-playbook", PLAYBOOK_MOBIDESK,
-               "-e", f"target={target_pcs}",
-               "--skip-tags", SKIP_TAGS_DEFAULT]
+        args = settings.get("full_args", f"--skip-tags {SKIP_TAGS_DEFAULT}").split()
+        cmd.extend(args)
     else:
-        cmd = ["ansible-playbook", PLAYBOOK_MOBIDESK,
-               "-e", f"target={target_pcs}",
-               "--tags", "neoagent,clubgg,neoagent_account_shortcuts"]
+        args = settings.get("room_args", "--tags neoagent,clubgg,neoagent_account_shortcuts").split()
+        cmd.extend(args)
+        
     if pc_count > 1:
         cmd += ["-f", str(pc_count)]
     return cmd
-
 
 def _update_db_status(log_id: int, status: str, target_pcs: str = None):
     db = SessionLocal()
@@ -151,7 +158,6 @@ def _update_db_status(log_id: int, status: str, target_pcs: str = None):
             db.commit()
     finally:
         db.close()
-
 
 def process_issue(jira, issue) -> bool:
     scenario, task_type, full_desc = classify_issue(issue)
@@ -183,7 +189,6 @@ def process_issue(jira, issue) -> bool:
 
     L(f"--- Задача [{issue.key}] {issue.fields.summary} — {task_type} ---")
     
-    # 1. Присваиваем задачу боту во избежание зацикливания, если мы упадем до конца.
     try:
         jira.assign_issue(issue.key, JIRA_USER)
         L(f"👤 Задача взята в работу ({JIRA_USER}).")
@@ -253,9 +258,6 @@ def process_issue(jira, issue) -> bool:
     if rc == 0:
         L(f"\n✅ Деплой завершен без ошибок! Закрываем задачу в Jira...")
         
-        # ========================================================
-        # НОВЫЙ БЛОК: АВТОМАТИЧЕСКОЕ ЗАПОЛНЕНИЕ ТАБЛИЦЫ В JIRA
-        # ========================================================
         if scenario == "C" and selected_pcs:
             old_desc = issue.fields.description or ""
             lines = old_desc.split('\n')
@@ -264,31 +266,26 @@ def process_issue(jira, issue) -> bool:
 
             for line in lines:
                 stripped = line.strip()
-                # Ищем строку таблицы с данными (начинается с |, но не с || - это заголовки)
                 if stripped.startswith('|') and not stripped.startswith('||'):
                     cells = line.split('|')
-                    # cells[1] - это содержимое первой ячейки (колонки "ИМ")
                     if len(cells) > 1 and pc_idx < len(selected_pcs):
                         first_cell = cells[1].strip()
-                        # Если ячейка пустая или содержит пробелы/&nbsp;
                         if not first_cell or first_cell == '&nbsp;':
-                            cells[1] = f" {selected_pcs[pc_idx]} "  # Вписываем комп
+                            cells[1] = f" {selected_pcs[pc_idx]} "
                             line = '|'.join(cells)
                             pc_idx += 1
                 new_lines.append(line)
 
-            # Если компов оказалось больше, чем пустых строк в таблице
             if pc_idx < len(selected_pcs):
                 new_lines.append("\n*Дополнительные ПК:* " + ", ".join(selected_pcs[pc_idx:]))
 
             new_desc = '\n'.join(new_lines)
 
-            # Сохраняем новое описание в Jira
             try:
                 issue.update(description=new_desc)
                 L(f"📝 Описание задачи обновлено. ПК вписаны в таблицу: {', '.join(selected_pcs[:pc_idx])}")
             except Exception as e:
-                L(f"⚠️ Не удалось обновить описание задачи (возможно нет прав на ред.): {e}")
+                L(f"⚠️ Не удалось обновить описание задачи: {e}")
         
         if scenario == "A":
             comment_text = "Комп(ы) передеплоены. Готовы к игре."
@@ -353,23 +350,17 @@ def process_issue(jira, issue) -> bool:
     
     return True
 
-
 def bot_job():
     log.info("Jira worker started via APScheduler")
 
-        # --- ПРОВЕРКА ТУМБЛЕРА ---
     state_file = BASE_DIR / "bot_status.txt"
-    # Если файл есть и там "0", бот спит. 
-    # Так как ты просил выключить сейчас, если файла нет - создадим его выключенным
     if not state_file.exists():
         state_file.write_text("0")
         
     if state_file.read_text().strip() == "0":
         log.info("Авто-бот выключен тумблером. Спим...")
         return
-    # -------------------------
     
-    # 1. Защита от параллельных запусков
     db = SessionLocal()
     active = db.query(DeployLog).filter(
         DeployLog.status.in_(["В процессе (Ansible)", "Инициализация"])
@@ -397,7 +388,7 @@ def bot_job():
         try:
             if process_issue(jira, issue):
                 processed_any = True
-                break # Обрабатываем по одной задаче за тик
+                break
         except Exception:
             log.exception("Unhandled error on %s", issue.key)
             db = SessionLocal()
