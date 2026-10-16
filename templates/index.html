@@ -703,6 +703,36 @@ body{
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 
 <script>
+/* ---------- Mock API для работы без бэкенда (в превью) ---------- */
+const originalFetch = window.fetch;
+window.fetch = async function(url, options) {
+  // Перехватываем относительные ссылки, чтобы избежать ошибки парсинга URL в blob-среде
+  if (typeof url === 'string' && url.startsWith('/')) {
+    if (url === '/api/statuses') {
+      return new Response(JSON.stringify({}), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    if (url === '/api/settings') {
+      if (options && options.method === 'POST') {
+        return new Response(JSON.stringify({status: "ok"}), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({ 
+        bot_enabled: true, 
+        full_args: "--skip-tags default", 
+        room_args: "--tags neoagent" 
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    if (url.startsWith('/cancel/')) {
+      return new Response(JSON.stringify({cancelled: true}), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+  }
+  try {
+    return await originalFetch(url, options);
+  } catch (e) {
+    console.warn("Fetch failed:", url);
+    return new Response(JSON.stringify({}), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  }
+};
+
 /* ---------- Тема ---------- */
 (function () {
   const saved = localStorage.getItem('theme') || 'light';
