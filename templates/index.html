@@ -844,6 +844,19 @@ document.getElementById('copyLogBtn').addEventListener('click', async function (
 
 /* ---------- SSE логи + skeleton ---------- */
 let logStream = null;
+let autoScrollTimeout = null;
+let isAutoScroll = true;
+
+// Утилита для безопасного экранирования HTML, чтобы избежать XSS
+function escapeHtml(unsafe) {
+  return unsafe
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 function showLog(id) {
   $('#logModalId').text(id);
   const body = document.getElementById('logModalBody');
@@ -852,9 +865,32 @@ function showLog(id) {
   modal.show();
 
   if (logStream) { logStream.close(); logStream = null; }
-  body.textContent = '';
+  body.innerHTML = ''; // Очищаем через innerHTML
   body.classList.add('d-none');
   sk.classList.remove('d-none');
+
+  // Сброс состояния скролла при новом открытии
+  isAutoScroll = true;
+  clearTimeout(autoScrollTimeout);
+
+  // Умный автоскролл
+  body.onscroll = function() {
+    // Проверяем, находимся ли мы в самом низу (с погрешностью в 10px для масштабирования экранов)
+    const isAtBottom = Math.ceil(body.scrollTop + body.clientHeight) >= body.scrollHeight - 10;
+    
+    if (isAtBottom) {
+      isAutoScroll = true;
+      clearTimeout(autoScrollTimeout);
+    } else {
+      isAutoScroll = false;
+      clearTimeout(autoScrollTimeout);
+      // Если мы поднялись наверх, ждем 15 секунд бездействия
+      autoScrollTimeout = setTimeout(() => {
+        isAutoScroll = true;
+        body.scrollTop = body.scrollHeight; // Принудительно кидаем вниз
+      }, 15000);
+    }
+  };
 
   let gotFirst = false;
   const revealBody = () => {
@@ -872,14 +908,26 @@ function showLog(id) {
       return;
     }
     revealBody();
-    body.textContent += e.data + '\n';
-    body.scrollTop = body.scrollHeight;
+    
+    // Экранируем текст лога и подсвечиваем FAILED
+    let safeHtml = escapeHtml(e.data);
+    safeHtml = safeHtml.replace(/(FAILED)/g, '<span style="color: var(--danger); font-weight: bold;">$1</span>');
+    
+    // Быстрое добавление новой строки
+    body.insertAdjacentHTML('beforeend', safeHtml + '\n');
+    
+    // Скроллим вниз только если разрешено
+    if (isAutoScroll) {
+      body.scrollTop = body.scrollHeight;
+    }
   };
+  
   logStream.onerror = () => {
+    let errHtml = escapeHtml('[соединение закрыто]');
     if (!gotFirst) {
-      body.textContent = '[соединение закрыто]\n';
+      body.innerHTML = errHtml + '\n';
     } else {
-      body.textContent += '\n[соединение закрыто]';
+      body.insertAdjacentHTML('beforeend', '\n' + errHtml);
     }
     revealBody();
     if (logStream) { logStream.close(); logStream = null; }
