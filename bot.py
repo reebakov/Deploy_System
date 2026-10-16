@@ -134,7 +134,7 @@ def build_ansible_cmd(scenario: str, target_pcs: str, pc_count: int) -> list[str
     else:
         cmd = ["ansible-playbook", PLAYBOOK_MOBIDESK,
                "-e", f"target={target_pcs}",
-               "--tags", "neoagent,clubgg"]
+               "--tags", "neoagent,clubgg,neoagent_account_shortcuts"]
     if pc_count > 1:
         cmd += ["-f", str(pc_count)]
     return cmd

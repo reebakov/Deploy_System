@@ -52,7 +52,7 @@ INSIGHT_STATUS_FREE_VALUE = int(os.getenv('INSIGHT_STATUS_FREE_VALUE', '18'))
 ANSIBLE_TIMEOUT = int(os.getenv('ANSIBLE_TIMEOUT', '3600'))
 SKIP_TAGS_DEFAULT = (
     "extended_software,taskbar,win_common_setup,win_activation,"
-    "common_software,win_user_autologon,vnc"
+    "common_software,win_user_autologon,vnc,seq"
 )
 
 # --- Retention ---

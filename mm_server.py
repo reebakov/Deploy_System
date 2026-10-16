@@ -205,7 +205,7 @@ def _build_manual_cmd(deploy_type: str, pcs: list[str], skip_tags: str):
     else:
         task_name = "Обновление рума"
         cmd = ["ansible-playbook", PLAYBOOK_MOBIDESK, "-e", f"target={target}",
-               "--tags", "neoagent,clubgg"]
+               "--tags", "neoagent,clubgg,neoagent_account_shortcuts"]
     if len(pcs) > 1 and deploy_type != "ssh":
         cmd += ["-f", str(len(pcs))]
     return task_name, cmd
