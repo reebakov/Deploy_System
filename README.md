@@ -8,12 +8,12 @@
 ```bash
 python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env        # заполнить токены; DASH_PASS обязателен
+cp .env.example .env        # заполнить токены, DASH_USER / DASH_PASS
 uvicorn mm_server:app --host 127.0.0.1 --port 8000 --workers 1
 ```
 
 * **Ровно один worker.** Блокировка «один деплой за раз» и планировщик живут в памяти процесса.
-* Сервис не стартует, если `DASH_PASS` не задан или слабый (`changeme`, `admin`, ...).
+* Логин/пароль дашборда — `DASH_USER` / `DASH_PASS` (по умолчанию `admin` / `changeme`; при слабом пароле сервис стартует, но пишет предупреждение в лог).
 * Выставляйте сервис наружу только через reverse proxy с HTTPS (nginx/caddy) — Basic Auth по HTTP передаёт пароль открытым текстом.
 * Готовые примеры: [deploy/deploy-system.service](deploy/deploy-system.service), [Dockerfile](Dockerfile).
 * Бот включается тумблером в настройках дашборда; вручную один тик: `python bot.py`.

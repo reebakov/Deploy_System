@@ -1,3 +1,4 @@
+import logging
 import os
 from pathlib import Path
 
@@ -26,9 +27,9 @@ JIRA_2_TOKEN  = os.getenv('JIRA_2_TOKEN')
 MATTERMOST_WEBHOOK = os.getenv('MATTERMOST_WEBHOOK')
 
 # --- Dashboard auth ---
-# Пароль по умолчанию отсутствует: сервер не стартует без DASH_PASS (см. validate_config).
+# Локальный сервис за VPN: слабый пароль не блокирует запуск, только пишется предупреждение.
 DASH_USER = os.getenv('DASH_USER', 'admin')
-DASH_PASS = os.getenv('DASH_PASS', '')
+DASH_PASS = os.getenv('DASH_PASS') or 'changeme'
 # Секрет для CSRF-токенов. Если не задан — генерируется при старте (токены живут до рестарта).
 CSRF_SECRET = os.getenv('CSRF_SECRET', '')
 AUTH_MAX_FAILURES   = int(os.getenv('AUTH_MAX_FAILURES', '5'))
@@ -52,10 +53,10 @@ def ensure_dirs() -> None:
 
 
 def validate_config() -> None:
-    """Проверка обязательных настроек безопасности перед запуском дашборда."""
-    if not DASH_PASS or DASH_PASS.strip().lower() in {"changeme", "admin", "password", "123456"}:
-        raise RuntimeError(
-            "DASH_PASS не задан или слишком слабый. Задайте надёжный пароль в .env."
+    """Предупреждает о слабом пароле дашборда, но не мешает запуску."""
+    if DASH_PASS.strip().lower() in {"changeme", "admin", "password", "123456"}:
+        logging.getLogger(__name__).warning(
+            "DASH_PASS не задан или слишком простой — рекомендуется сменить пароль в .env."
         )
 
 

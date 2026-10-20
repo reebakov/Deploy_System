@@ -105,8 +105,8 @@ def test_metrics(client):
     assert "deploy_total" in client.get("/metrics", headers=AUTH).text
 
 
-def test_weak_password_rejected(monkeypatch):
+def test_weak_password_only_warns(monkeypatch, caplog):
     import config
     monkeypatch.setattr(config, "DASH_PASS", "changeme")
-    with pytest.raises(RuntimeError):
-        config.validate_config()
+    config.validate_config()  # не должно бросать исключение
+    assert "DASH_PASS" in caplog.text
