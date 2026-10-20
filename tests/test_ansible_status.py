@@ -40,3 +40,26 @@ def test_execute_success_and_timeout(tmp_path, monkeypatch):
     assert rc == 0 and "hi" in out and status == "Успешно"
     rc, _, status = ar.execute([sys.executable, "-c", "import time; time.sleep(30)"], timeout=1)
     assert rc == -1 and status == "Таймаут"
+
+
+def test_rc4_is_unreachable_not_parse_error():
+    assert "недоступен" in ar.get_ansible_status(4)
+    assert "парсинга" not in ar.get_ansible_status(4)
+
+
+def test_unreachable_partial_rc4(tmp_path):
+    f = tmp_path / "l.log"
+    f.write_text(RECAP_PARTIAL, encoding="utf-8")
+    assert ar.get_detailed_status(4, f).startswith("Частично")
+
+
+def test_summarize_errors(tmp_path):
+    f = tmp_path / "l.log"
+    f.write_text(
+        'TASK [x]\nfatal: [A105]: UNREACHABLE! => {"msg": "timed out"}\nok: [A106]\n'
+        'fatal: [A106]: FAILED! => {"msg": "boom"}\n',
+        encoding="utf-8",
+    )
+    out = ar.summarize_errors(f)
+    assert "A105" in out and "A106" in out and "ok:" not in out
+    assert ar.summarize_errors(tmp_path / "missing.log") == ""

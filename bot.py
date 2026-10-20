@@ -1,6 +1,6 @@
 import re
 
-from ansible_runner import _log_path, run_ansible_blocking
+from ansible_runner import _log_path, run_ansible_blocking, summarize_errors
 from config import (
     ACCOUNTS_FIELD_ID, EPIC_FIELD_ID, INSIGHT_GPU_MODELS, JIRA_DONE_TRANSITIONS, JIRA_JQL,
     JIRA_MAX_RESULTS, JIRA_USER, POKER_FIELD_ID, PROBLEM_DESC_FIELD_ID, ROLE_FIELD_ID,
@@ -245,6 +245,7 @@ def _run_scenario(jira, issue, scenario, task_type, full_desc, log_id, L, booked
                          f"⚠️ **Внимание:** Ошибка инвентаря для {issue.key}")
         if new_pcs:
             L(f"✅ ПК {', '.join(new_pcs)} добавлены в инвентарь {TARGET_GROUP}.")
+        run_ssh_init_if_needed(pcs, L)  # недоступные по SSH ПК — главная причина падений (rc=4)
         selected_pcs = pcs
 
     else:  # C
@@ -289,8 +290,10 @@ def _run_scenario(jira, issue, scenario, task_type, full_desc, log_id, L, booked
     if rc == 0:
         mm_text = _on_success(jira, issue, scenario, task_type, selected_pcs, target_pcs, L)
     else:
+        errors = summarize_errors(_log_path(log_id))
         mm_text = _on_failure(jira, issue, scenario, task_type, selected_pcs, target_pcs,
-                              status, booked, added, L)
+                              status, booked, added, L, errors)
+        update_log(log_id, errors=errors)
 
     L(f"\n🏁 Финальный статус: {status}")
     update_log(log_id, status)
@@ -325,8 +328,9 @@ def _on_success(jira, issue, scenario, task_type, selected_pcs, target_pcs, L) -
     )
 
 
-def _on_failure(jira, issue, scenario, task_type, selected_pcs, target_pcs, status, booked, added, L) -> str:
-    extra = ""
+def _on_failure(jira, issue, scenario, task_type, selected_pcs, target_pcs, status, booked, added, L,
+                errors: str = "") -> str:
+    extra = f"\n```\n{errors}\n```" if errors else ""
     if is_partial(status):
         L("\n⚠️ Частичный успех. ПК остаются в инвентаре и забронированными в Insight. Проверьте руками.")
         try:
@@ -334,7 +338,7 @@ def _on_failure(jira, issue, scenario, task_type, selected_pcs, target_pcs, stat
         except Exception:
             log.exception("Cannot comment %s", issue.key)
         if booked:
-            extra = f"\n⚠️ **Требуется ручная проверка**: ПК {target_pcs} остались забронированными в Insight."
+            extra += f"\n⚠️ **Требуется ручная проверка**: ПК {target_pcs} остались забронированными в Insight."
     else:
         if booked:
             L("\n⚠️ Ошибка деплоя. Возвращаем статус ПК в Insight на 'Ожидает'...")

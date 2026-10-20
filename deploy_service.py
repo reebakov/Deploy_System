@@ -79,7 +79,7 @@ def create_deploy_log(*, jira_key: str, task_type: str, target_pcs: str, status:
 
 
 def update_log(log_id: int, status: str | None = None, target_pcs: str | None = None,
-               command: list[str] | None = None) -> None:
+               command: list[str] | None = None, errors: str | None = None) -> None:
     with session_scope() as db:
         entry = db.query(DeployLog).filter(DeployLog.id == log_id).first()
         if not entry:
@@ -90,6 +90,8 @@ def update_log(log_id: int, status: str | None = None, target_pcs: str | None = 
             entry.target_pcs = target_pcs
         if command:
             entry.command = " ".join(command)
+        if errors:
+            entry.ansible_output = errors
 
 
 def ensure_in_inventory(pcs: list[str], target_group: str | None = None) -> tuple[bool, list[str]]:

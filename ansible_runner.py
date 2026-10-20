@@ -17,14 +17,24 @@ ANSIBLE_RC = {
     0:   "Успешно",
     1:   "Ошибка выполнения (1)",
     2:   "Машина(ы) failed (2)",
-    3:   "Машина(ы) unreachable (3)",
-    4:   "Ошибка парсинга плейбука (4)",
-    5:   "Неверные опции CLI (5)",
+    3:   "Машина(ы) failed и unreachable (3)",
+    # В ansible-playbook код возврата — битовая маска: 1 ошибка, 2 failed-хосты, 4 unreachable-хосты,
+    # 8 прерван break_play. Поэтому 4 — это НЕДОСТУПНЫЙ ПК, а не «ошибка парсинга плейбука».
+    4:   "ПК недоступен (unreachable) (4)",
+    5:   "Ошибка + ПК недоступен (5)",
+    6:   "Машина(ы) failed и unreachable (6)",
+    7:   "Ошибка, failed и unreachable (7)",
+    8:   "Плейбук остановлен (break_play) (8)",
     -15: "Прервано пользователем (SIGTERM)",
     -9:  "Прервано пользователем (SIGKILL)",
     99:  "Прервано пользователем (99)",
     100: "Плейбук завершён с ошибками (100)",
+    250: "Неожиданная ошибка Ansible (250)",
 }
+
+# Коды, при которых имеет смысл разбирать PLAY RECAP (failed / unreachable хосты)
+RECAP_CODES = (2, 3, 4, 5, 6, 7)
+ERROR_LINE_RE = re.compile(r"^(fatal:|FAILED!|.*UNREACHABLE!|ERROR!)", re.IGNORECASE)
 
 _HAS_PGROUP = hasattr(os, "killpg")
 
@@ -52,7 +62,7 @@ def parse_recap(content: str) -> tuple[int, int] | None:
 
 def get_detailed_status(rc: int, log_file: Path | None) -> str:
     base_status = get_ansible_status(rc)
-    if rc not in (2, 3) or not log_file or not Path(log_file).exists():
+    if rc not in RECAP_CODES or not log_file or not Path(log_file).exists():
         return base_status
     try:
         recap = parse_recap(Path(log_file).read_text(encoding="utf-8", errors="replace"))
@@ -67,6 +77,23 @@ def get_detailed_status(rc: int, log_file: Path | None) -> str:
     return base_status
 
 
+def summarize_errors(log_file: Path | str | None, limit: int = 5, width: int = 300) -> str:
+    """Выжимка причин сбоя из лога (строки fatal / UNREACHABLE / ERROR!) для уведомлений."""
+    if not log_file or not Path(log_file).exists():
+        return ""
+    try:
+        text = Path(log_file).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    found: list[str] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if ERROR_LINE_RE.match(line) and line not in found:
+            found.append(line[:width])
+    return "
+".join(found[-limit:])
+
+
 def _log_path(log_id: int) -> Path:
     return DEPLOY_LOG_DIR / f"deploy_{log_id}.log"
 
@@ -76,6 +103,15 @@ def _save_result(log_id: int, status: str) -> None:
         dblog = db.query(DeployLog).filter(DeployLog.id == log_id).first()
         if dblog:
             dblog.status = status
+
+
+def _save_errors(log_id: int, errors: str) -> None:
+    if not errors:
+        return
+    with session_scope() as db:
+        dblog = db.query(DeployLog).filter(DeployLog.id == log_id).first()
+        if dblog:
+            dblog.ansible_output = errors
 
 
 def _save_pid(log_id: int, pid: int, log_file: Path | None) -> None:
@@ -177,8 +213,10 @@ def run_and_wait_detached(ansible_cmd: list[str], log_id: int, timeout: int = AN
     except OSError as e:
         _save_result(log_id, f"{Status.CRITICAL}: {e}")
         return
-    _, _, status = execute(ansible_cmd, log_id=log_id, timeout=timeout)
+    rc, _, status = execute(ansible_cmd, log_id=log_id, timeout=timeout)
     _save_result(log_id, status)
+    if rc != 0:
+        _save_errors(log_id, summarize_errors(log_file))
 
 
 def pid_alive(pid: int | None) -> bool:
