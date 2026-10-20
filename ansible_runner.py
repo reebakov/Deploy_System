@@ -90,8 +90,7 @@ def summarize_errors(log_file: Path | str | None, limit: int = 5, width: int = 3
         line = line.strip()
         if ERROR_LINE_RE.match(line) and line not in found:
             found.append(line[:width])
-    return "
-".join(found[-limit:])
+    return "\n".join(found[-limit:])
 
 
 def _log_path(log_id: int) -> Path:
