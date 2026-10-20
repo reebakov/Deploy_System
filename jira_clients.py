@@ -2,7 +2,7 @@ import logging
 
 import requests
 from jira import JIRA
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from config import (
     INSIGHT_ROOM_ATTR_ID, INSIGHT_ROOM_VALUE,
@@ -13,12 +13,28 @@ from config import (
 
 log = logging.getLogger(__name__)
 
+def _is_transient(exc: BaseException) -> bool:
+    """Повторяем только сетевые сбои и 5xx; 4xx (403, 404...) повтор не лечит."""
+    if isinstance(exc, requests.HTTPError):
+        resp = exc.response
+        return resp is not None and resp.status_code >= 500
+    return isinstance(exc, requests.RequestException)
+
+
 _retry_http = retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(min=1, max=10),
-    retry=retry_if_exception_type(requests.RequestException),
+    retry=retry_if_exception(_is_transient),
     reraise=True,
 )
+
+
+def _check(r: requests.Response) -> None:
+    """raise_for_status, но с телом ответа и без километрового URL в сообщении."""
+    if r.status_code >= 400:
+        body = (r.text or "").strip().replace("\n", " ")[:200]
+        raise requests.HTTPError(
+            f"{r.status_code} {r.reason} от {r.url.split('?')[0]}: {body or 'пустой ответ'}", response=r)
 
 
 def get_jira() -> JIRA:
@@ -42,7 +58,7 @@ def insight_search(iql: str, result_per_page: int = 500) -> list[dict]:
         headers=_insight_headers(),
         timeout=15,
     )
-    r.raise_for_status()
+    _check(r)
     return r.json().get("objectEntries", [])
 
 
@@ -53,7 +69,7 @@ def _insight_put(object_id: str, attributes: list[dict]) -> bool:
         headers=_insight_headers(),
         timeout=15,
     )
-    r.raise_for_status()  # чтобы retry сработал на 4xx/5xx
+    _check(r)
     return r.status_code in (200, 201, 202, 204)
 
 

@@ -63,3 +63,27 @@ def test_summarize_errors(tmp_path):
     out = ar.summarize_errors(f)
     assert "A105" in out and "A106" in out and "ok:" not in out
     assert ar.summarize_errors(tmp_path / "missing.log") == ""
+
+
+def test_preflight_all_unreachable(monkeypatch):
+    monkeypatch.setattr(ar, "check_ssh_many", lambda pcs, port=22: {p: False for p in pcs})
+    lines = []
+    assert ar.preflight_unreachable(["A105"], "room_only", lines.append) is True
+    assert "22" in lines[0]
+    assert ar.preflight_unreachable(["A105"], "ssh", lines.append) is True
+    assert "5985" in lines[-1] or any("5985" in ln for ln in lines)
+
+
+def test_preflight_partial_not_blocking(monkeypatch):
+    monkeypatch.setattr(ar, "check_ssh_many", lambda pcs, port=22: {"A105": True, "A106": False})
+    assert ar.preflight_unreachable(["A105", "A106"], "full", lambda m: None) is False
+
+
+def test_insight_does_not_retry_4xx():
+    import requests
+    from jira_clients import _is_transient
+    r403, r500 = requests.Response(), requests.Response()
+    r403.status_code, r500.status_code = 403, 502
+    assert not _is_transient(requests.HTTPError(response=r403))
+    assert _is_transient(requests.HTTPError(response=r500))
+    assert _is_transient(requests.ConnectionError())

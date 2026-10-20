@@ -228,7 +228,7 @@ def _launch(background_tasks: BackgroundTasks, *, deploy_type: str, pcs: list[st
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e))
     log.info("Deploy #%s started by %s: %s", log_id, user, " ".join(cmd))
-    background_tasks.add_task(run_and_wait_detached, cmd, log_id)
+    background_tasks.add_task(run_and_wait_detached, cmd, log_id, pcs=pcs, deploy_type=deploy_type)
 
 
 @app.post("/manual_deploy")

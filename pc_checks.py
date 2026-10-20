@@ -34,11 +34,11 @@ def check_ssh(hostname: str, port: int = 22, timeout: float = 2.0) -> bool:
         return False
 
 
-def _check_many(func, hosts: list[str], workers: int) -> dict[str, bool]:
+def _check_many(func, hosts: list[str], workers: int, **kwargs) -> dict[str, bool]:
     if not hosts:
         return {}
     with ThreadPoolExecutor(max_workers=workers) as ex:
-        results = list(ex.map(func, hosts))
+        results = list(ex.map(lambda h: func(h, **kwargs), hosts))
     return dict(zip(hosts, results))
 
 
@@ -46,8 +46,8 @@ def check_ping_many(hosts: list[str], workers: int = 16) -> dict[str, bool]:
     return _check_many(check_ping, hosts, workers)
 
 
-def check_ssh_many(hosts: list[str], workers: int = 16) -> dict[str, bool]:
-    return _check_many(check_ssh, hosts, workers)
+def check_ssh_many(hosts: list[str], workers: int = 16, port: int = 22) -> dict[str, bool]:
+    return _check_many(check_ssh, hosts, workers, port=port)
 
 
 def is_valid_pc_name(name: str) -> bool:

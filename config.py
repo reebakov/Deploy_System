@@ -107,6 +107,11 @@ SKIP_TAGS_DEFAULT = (
 )
 ROOM_TAGS_DEFAULT = "neoagent,clubgg,neoagent_account_shortcuts"
 
+# Автоповтор упавших хостов (флаки: choco-репозиторий, сеть) и подбор замены недоступным ПК
+ANSIBLE_AUTO_RETRIES = int(os.getenv('ANSIBLE_AUTO_RETRIES', '1'))
+ANSIBLE_RETRY_PAUSE = int(os.getenv('ANSIBLE_RETRY_PAUSE', '30'))
+PC_REPLACEMENT_ATTEMPTS = int(os.getenv('PC_REPLACEMENT_ATTEMPTS', '3'))
+
 # --- Retention / watchdog ---
 LOG_RETENTION_DAYS = int(os.getenv('LOG_RETENTION_DAYS', '90'))
 # Деплой, висящий дольше ANSIBLE_TIMEOUT + запас, считается зависшим → алерт в Mattermost

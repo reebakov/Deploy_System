@@ -13,6 +13,8 @@ class Status:
     PARSE_ERROR = "Ошибка парсинга"
     NOT_ENOUGH  = "Отмена: нехватка ПК"
     PREPARING   = "Подбор ПК..."
+    UNREACHABLE = "ПК недоступен"
+    RETRY_OK    = "Успешно (после автоповтора)"
 
 
 ACTIVE_STATUSES = (Status.INIT, Status.RUNNING)

@@ -1,11 +1,15 @@
 import re
 
-from ansible_runner import _log_path, run_ansible_blocking, summarize_errors
+import time
+
+from ansible_runner import (
+    _log_path, failed_hosts_from_log, run_ansible_blocking, summarize_errors,
+)
 from config import (
     ACCOUNTS_FIELD_ID, EPIC_FIELD_ID, INSIGHT_GPU_MODELS, JIRA_DONE_TRANSITIONS, JIRA_JQL,
     JIRA_MAX_RESULTS, JIRA_USER, POKER_FIELD_ID, PROBLEM_DESC_FIELD_ID, ROLE_FIELD_ID,
     STATE_FIELD_ID, TARGET_GROUP, TASK_EPICS, TASK_POKER, TASK_ROLE, BOT_RETRY_COOLDOWN_MIN,
-    PLAYBOOK_OPENSSH,
+    PLAYBOOK_OPENSSH, ANSIBLE_AUTO_RETRIES, ANSIBLE_RETRY_PAUSE, PC_REPLACEMENT_ATTEMPTS,
 )
 from database import DeployLog, session_scope, utcnow, get_active_log
 from datetime import timedelta
@@ -69,7 +73,7 @@ def extract_pcs(text: str) -> list[str]:
 
 # --- Шаги сценариев ----------------------------------------------------------
 
-def pick_free_pcs(need: int, L) -> list[dict]:
+def pick_free_pcs(need: int, L, exclude: set[str] | frozenset[str] = frozenset()) -> list[dict]:
     """Подбирает свободные пингуемые ПК в Insight и бронирует их."""
     L(f"🔍 Требуется подобрать ПК: {need} шт. Идем в Insight...")
     try:
@@ -79,8 +83,14 @@ def pick_free_pcs(need: int, L) -> list[dict]:
         return []
 
     # Имя из Insight попадает в команду ping/ansible — берём только валидные
-    candidates = [o for o in objects if PC_NAME_RE.match(sanitize_pc_name(o.get("label") or ""))]
+    candidates = [o for o in objects
+                  if PC_NAME_RE.match(sanitize_pc_name(o.get("label") or ""))
+                  and sanitize_pc_name(o["label"]) not in exclude]
     ping_results = check_ping_many([c["label"] for c in candidates])
+    L(f"📊 Insight вернул {len(objects)} объектов, подходящих по имени: {len(candidates)}, "
+      f"пингуется: {sum(1 for v in ping_results.values() if v)}")
+    if not candidates:
+        L("⚠️ Нет свободных ПК с нужным статусом/видеокартой. Проверьте IQL и статусы в Insight.")
 
     selected: list[dict] = []
     for obj in candidates:
@@ -112,21 +122,50 @@ def revert_bookings(pcs: list[dict], L) -> None:
             L(f"   └ ⚠️ Ошибка отката статуса для {pc['name']} — исправьте в Insight вручную!")
 
 
-def run_ssh_init_if_needed(pcs: list[str], L) -> None:
+def run_ssh_init_if_needed(pcs: list[str], L) -> list[str]:
+    """Проверяет SSH и при необходимости запускает SSH init. Возвращает ПК, недоступные и после этого."""
     ssh_results = check_ssh_many(pcs)
     for p in pcs:
         L(f"SSH на {p}: {'✅ открыт' if ssh_results.get(p) else '⚠️ закрыт'}")
 
     need_init = [p for p in pcs if not ssh_results.get(p)]
     if not need_init:
-        return
+        return []
 
     cmd = ["ansible-playbook", PLAYBOOK_OPENSSH, "-e", f"target={','.join(need_init)}"]
     L(f"🚀 Запускаем SSH init: {' '.join(cmd)}")
     rc, out, status = run_ansible_blocking(cmd)
     L(f"SSH init rc={rc} ({status})\n{out}")
     if rc != 0:
-        L("⚠️ Ошибка SSH init. Продолжаем на свой страх и риск.")
+        L("⚠️ Ошибка SSH init.")
+    recheck = check_ssh_many(need_init)
+    still_closed = [p for p in need_init if not recheck.get(p)]
+    for p in still_closed:
+        L(f"❌ {p}: SSH так и не открылся — ПК недоступен.")
+    return still_closed
+
+
+def run_deploy_with_retry(deploy_type: str, pcs: list[str], cmd: list[str], log_id: int, L) -> tuple[int, str]:
+    """Основной запуск + автоповтор только по упавшим хостам (частые флаки: choco-репозиторий, сеть)."""
+    rc, _out, status = run_ansible_blocking(cmd, log_id=log_id)
+    retries = ANSIBLE_AUTO_RETRIES
+    while rc != 0 and retries > 0 and status != Status.TIMEOUT:
+        bad = [h for h in failed_hosts_from_log(_log_path(log_id)) if h in pcs]
+        if not bad:
+            break
+        retries -= 1
+        L(f"\n🔁 Автоповтор для упавших ПК: {', '.join(bad)} (через {ANSIBLE_RETRY_PAUSE} с)")
+        time.sleep(ANSIBLE_RETRY_PAUSE)
+        _, retry_cmd = build_command(deploy_type, bad)
+        rc, _out, status = run_ansible_blocking(retry_cmd, log_id=log_id)
+        still = [h for h in failed_hosts_from_log(_log_path(log_id)) if h in bad]
+        if rc == 0:
+            L("✅ Автоповтор прошёл успешно.")
+            return 0, Status.RETRY_OK
+        succeeded = len(pcs) - len(still)
+        if still and succeeded > 0:
+            status = f"Частично ({succeeded} ок, {len(still)} fail)"
+    return rc, status
 
 
 def fill_pcs_in_description(old_desc: str, pcs: list[str]) -> tuple[str, int]:
@@ -245,7 +284,12 @@ def _run_scenario(jira, issue, scenario, task_type, full_desc, log_id, L, booked
                          f"⚠️ **Внимание:** Ошибка инвентаря для {issue.key}")
         if new_pcs:
             L(f"✅ ПК {', '.join(new_pcs)} добавлены в инвентарь {TARGET_GROUP}.")
-        run_ssh_init_if_needed(pcs, L)  # недоступные по SSH ПК — главная причина падений (rc=4)
+        unreachable = run_ssh_init_if_needed(pcs, L)  # недоступные ПК — главная причина падений (rc=4)
+        if unreachable:
+            return _fail(jira, issue, log_id, Status.UNREACHABLE,
+                         f"❌ ПК недоступны по сети (SSH/WinRM): {', '.join(unreachable)}. "
+                         "Включите ПК/проверьте VPN и повторите.",
+                         f"⚠️ **ПК недоступны:** {', '.join(unreachable)} (задача {issue.key})")
         selected_pcs = pcs
 
     else:  # C
@@ -259,7 +303,23 @@ def _run_scenario(jira, issue, scenario, task_type, full_desc, log_id, L, booked
             return _fail(jira, issue, log_id, Status.PARSE_ERROR,
                          f"❌ Некорректное количество ПК: {raw_count!r}")
 
-        booked.extend(pick_free_pcs(need, L))
+        tried: set[str] = set()
+        for attempt in range(1, PC_REPLACEMENT_ATTEMPTS + 1):
+            lacking = need - len(booked)
+            if lacking <= 0:
+                break
+            if attempt > 1:
+                L(f"🔁 Подбираем замену недоступным ПК (попытка {attempt}): нужно ещё {lacking}")
+            new = pick_free_pcs(lacking, L, exclude=tried)
+            if not new:
+                break
+            tried.update(p["name"] for p in new)
+            unreachable = run_ssh_init_if_needed([p["name"] for p in new], L)
+            bad = [p for p in new if p["name"] in unreachable]
+            if bad:
+                L(f"↩️ Снимаем бронь с недоступных ПК: {', '.join(p['name'] for p in bad)}")
+                revert_bookings(bad, L)
+            booked.extend(p for p in new if p["name"] not in unreachable)
         selected_pcs = [p["name"] for p in booked]
         if len(selected_pcs) < need:
             L(f"❌ Найдено {len(selected_pcs)} из {need}. Отмена. Откатываем статусы...")
@@ -270,7 +330,6 @@ def _run_scenario(jira, issue, scenario, task_type, full_desc, log_id, L, booked
                          f"❌ Найдено только {len(selected_pcs)} из {need} нужных ПК. Деплой отменен.",
                          f"⚠️ **Внимание:** Нехватка ПК ({len(selected_pcs)}/{need}) для {issue.key}")
 
-        run_ssh_init_if_needed(selected_pcs, L)
         ok, new_pcs = ensure_in_inventory(selected_pcs)
         added.extend(new_pcs)
         if not ok:
@@ -281,11 +340,12 @@ def _run_scenario(jira, issue, scenario, task_type, full_desc, log_id, L, booked
             return True
 
     target_pcs = ",".join(selected_pcs)
-    _, ansible_cmd = build_command("full" if scenario == "C" else "room_only", selected_pcs)
+    deploy_type = "full" if scenario == "C" else "room_only"
+    _, ansible_cmd = build_command(deploy_type, selected_pcs)
 
     update_log(log_id, Status.RUNNING, target_pcs, ansible_cmd)
     L("🚀 Запускаем главный плейбук...")
-    rc, _out, status = run_ansible_blocking(ansible_cmd, log_id=log_id)
+    rc, status = run_deploy_with_retry(deploy_type, selected_pcs, ansible_cmd, log_id, L)
 
     if rc == 0:
         mm_text = _on_success(jira, issue, scenario, task_type, selected_pcs, target_pcs, L)

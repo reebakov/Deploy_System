@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 from config import ANSIBLE_CWD, ANSIBLE_TIMEOUT, DEPLOY_LOG_DIR
+from pc_checks import check_ssh_many
 from database import DeployLog, session_scope
 from statuses import Status, is_active
 
@@ -58,6 +59,31 @@ def parse_recap(content: str) -> tuple[int, int] | None:
         elif re.search(r'ok=[1-9]\d*', line):
             success_hosts += 1
     return success_hosts, failed_hosts
+
+
+def failed_hosts(content: str) -> list[str]:
+    """Хосты с failed/unreachable по последнему PLAY RECAP (localhost не учитывается)."""
+    if "PLAY RECAP" not in content:
+        return []
+    result: list[str] = []
+    for line in content.split("PLAY RECAP")[-1].splitlines():
+        line = line.strip()
+        if ":" not in line or "ok=" not in line:
+            continue
+        host = line.split(":", 1)[0].strip()
+        if host != "localhost" and (re.search(r'failed=[1-9]\d*', line)
+                                    or re.search(r'unreachable=[1-9]\d*', line)):
+            result.append(host)
+    return result
+
+
+def failed_hosts_from_log(log_file: Path | str | None) -> list[str]:
+    if not log_file or not Path(log_file).exists():
+        return []
+    try:
+        return failed_hosts(Path(log_file).read_text(encoding="utf-8", errors="replace"))
+    except OSError:
+        return []
 
 
 def get_detailed_status(rc: int, log_file: Path | None) -> str:
@@ -203,14 +229,46 @@ def run_ansible_blocking(ansible_cmd: list[str], log_id: int | None = None,
     return execute(ansible_cmd, log_id=log_id, timeout=timeout)
 
 
-def run_and_wait_detached(ansible_cmd: list[str], log_id: int, timeout: int = ANSIBLE_TIMEOUT) -> None:
+def preflight_unreachable(pcs: list[str], deploy_type: str | None, write) -> bool:
+    """Быстрая проверка порта до запуска Ansible. True — недоступны ВСЕ ПК (запускать нет смысла).
+
+    Для SSH-init проверяется WinRM (5985), для остальных деплоев — SSH (22).
+    Иначе Ansible висит 30+ секунд на таймауте и заканчивается невнятным rc=4.
+    """
+    if not pcs:
+        return False
+    port = 5985 if deploy_type == "ssh" else 22
+    results = check_ssh_many(pcs, port=port)
+    closed = [p for p in pcs if not results.get(p)]
+    for p in pcs:
+        write(f"Проверка порта {port} на {p}: {'открыт' if results.get(p) else 'ЗАКРЫТ'}")
+    if closed and len(closed) < len(pcs):
+        write(f"⚠️ Недоступны: {', '.join(closed)} — Ansible покажет для них unreachable.")
+    return len(closed) == len(pcs)
+
+
+def run_and_wait_detached(ansible_cmd: list[str], log_id: int, timeout: int = ANSIBLE_TIMEOUT,
+                          pcs: list[str] | None = None, deploy_type: str | None = None) -> None:
     """Запуск для ручных деплоев: результат (в т.ч. таймаут) сразу пишется в БД."""
     log_file = _log_path(log_id)
     try:
         with open(log_file, "a", encoding="utf-8") as f:
             f.write(f"Command: {' '.join(ansible_cmd)}\n\n=== LOGS ===\n")
+
+            def write(msg: str) -> None:
+                f.write(msg + "\n")
+                f.flush()
+
+            if pcs and preflight_unreachable(pcs, deploy_type, write):
+                write("❌ Все выбранные ПК недоступны по сети — запуск Ansible отменён.")
+                unreachable = True
+            else:
+                unreachable = False
     except OSError as e:
         _save_result(log_id, f"{Status.CRITICAL}: {e}")
+        return
+    if unreachable:
+        _save_result(log_id, Status.UNREACHABLE)
         return
     rc, _, status = execute(ansible_cmd, log_id=log_id, timeout=timeout)
     _save_result(log_id, status)
