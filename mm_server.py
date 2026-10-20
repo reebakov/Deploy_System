@@ -1,90 +1,131 @@
 import asyncio
 import os
-import secrets
-import json
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from fastapi import (BackgroundTasks, Depends, FastAPI, Form, HTTPException, Request)
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from fastapi.templating import Jinja2Templates
 from apscheduler.schedulers.background import BackgroundScheduler
+from fastapi import BackgroundTasks, Depends, FastAPI, Form, HTTPException, Request
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, StreamingResponse
+from fastapi.templating import Jinja2Templates
 
-from ansible_runner import cancel_deploy, run_and_wait_detached
+import config
+from ansible_runner import cancel_deploy, recover_active_deploys, run_and_wait_detached
+from bot import bot_job
 from config import (
-    BASE_DIR, DASH_PASS, DASH_USER, INVENTORY_PATH, JIRA_SERVER, LOG_RETENTION_DAYS,
-    PLAYBOOK_MOBIDESK, PLAYBOOK_OPENSSH, SKIP_TAGS_DEFAULT, TARGET_GROUP,
-    DEPLOY_LOG_DIR,
+    ANSIBLE_TIMEOUT, BASE_DIR, DASH_TIMEZONE, INVENTORY_PATH, JIRA_SERVER, LOG_RETENTION_DAYS,
+    SKIP_TAGS_DEFAULT, TARGET_GROUP, WATCHDOG_GRACE_SECONDS,
 )
-from database import DeployLog, SessionLocal, cleanup_old_logs
-from inventory_manager import parse_inventory, check_pcs_in_inventory, add_pcs_to_inventory
+from database import DeployLog, cleanup_old_logs, get_active_log, init_db, session_scope, utcnow
+from deploy_service import DeployBusy, ensure_in_inventory, start_manual_deploy
+from inventory_manager import parse_inventory
 from logging_setup import setup_logging
-from bot import bot_job, sanitize_pc_name
+from notify import send_mattermost
+from security import check_auth, csrf_protect, make_csrf_token
+from settings_store import get_deploy_settings, is_bot_enabled, save_deploy_settings, set_bot_enabled
+from statuses import is_active
+from validation import DEPLOY_TYPES, ValidationError, parse_pc_list, validate_tags
 
 log = setup_logging()
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
-security = HTTPBasic()
 
-def check_auth(creds: HTTPBasicCredentials = Depends(security)) -> str:
-    ok_user = secrets.compare_digest(creds.username, DASH_USER)
-    ok_pass = secrets.compare_digest(creds.password, DASH_PASS)
-    if not (ok_user and ok_pass):
-        raise HTTPException(status_code=401, headers={"WWW-Authenticate": "Basic"})
-    return creds.username
+_alerted_stuck: set[int] = set()
+
+
+def _fmt_duration(entry: DeployLog) -> str:
+    if entry.updated_at and entry.created_at:
+        dur = (entry.updated_at - entry.created_at).total_seconds()
+        return f"{int(dur // 60)}м {int(dur % 60)}с"
+    return "—"
+
+
+def watchdog_job() -> None:
+    """Алерт в Mattermost, если деплой висит дольше таймаута Ansible + запас."""
+    limit = ANSIBLE_TIMEOUT + WATCHDOG_GRACE_SECONDS
+    with session_scope() as db:
+        for entry in db.query(DeployLog).all():
+            if not is_active(entry.status) or entry.id in _alerted_stuck or not entry.created_at:
+                continue
+            if (utcnow() - entry.created_at).total_seconds() > limit:
+                _alerted_stuck.add(entry.id)
+                send_mattermost(
+                    f"@here ⏱ **Деплой #{entry.id} завис** ({entry.jira_key}, ПК: {entry.target_pcs}). "
+                    f"Статус «{entry.status}» дольше {limit // 60} мин."
+                )
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Очистка зависших статусов после рестарта сервиса
-    db = SessionLocal()
-    try:
-        stuck_logs = db.query(DeployLog).filter(DeployLog.status.like("%В процессе%")).all()
-        for sl in stuck_logs:
-            sl.status = "Прервано (рестарт)"
-        db.commit()
-    finally:
-        db.close()
+    config.validate_config()
+    config.ensure_dirs()
+    init_db()
+    recover_active_deploys()
 
     scheduler = BackgroundScheduler()
-    # Авто-бот (расписание на каждые 2 минуты)
-    scheduler.add_job(bot_job, 'interval', minutes=2, max_instances=1)
+    scheduler.add_job(bot_job, 'interval', minutes=2, max_instances=1, coalesce=True)
     scheduler.add_job(lambda: cleanup_old_logs(LOG_RETENTION_DAYS), 'interval', days=1)
+    scheduler.add_job(watchdog_job, 'interval', minutes=5, max_instances=1)
     scheduler.start()
-    
+
     try:
         cleanup_old_logs(LOG_RETENTION_DAYS)
     except Exception:
         log.exception("Retention failed at startup")
-        
+
     yield
-    scheduler.shutdown()
+    scheduler.shutdown(wait=False)
+
 
 app = FastAPI(lifespan=lifespan)
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
+    return response
+
+
+@app.exception_handler(ValidationError)
+async def validation_error_handler(request: Request, exc: ValidationError):
+    return PlainTextResponse(str(exc), status_code=400)
+
 
 @app.get("/health")
 def health():
     return {"ok": True}
 
+
+@app.get("/metrics", response_class=PlainTextResponse)
+def metrics(user: str = Depends(check_auth)):
+    """Метрики в формате Prometheus."""
+    with session_scope() as db:
+        rows = db.query(DeployLog.status).all()
+    active = sum(1 for (s,) in rows if is_active(s))
+    ok = sum(1 for (s,) in rows if (s or "").startswith("Успешно"))
+    lines = [
+        "# TYPE deploy_total counter", f"deploy_total {len(rows)}",
+        "# TYPE deploy_success_total counter", f"deploy_success_total {ok}",
+        "# TYPE deploy_active gauge", f"deploy_active {active}",
+        "# TYPE deploy_bot_enabled gauge", f"deploy_bot_enabled {int(is_bot_enabled())}",
+    ]
+    return "\n".join(lines) + "\n"
+
+
 @app.get("/", response_class=HTMLResponse)
-def dashboard(request: Request, user: str = Depends(check_auth)):
-    db = SessionLocal()
-    try:
-        logs = db.query(DeployLog).order_by(DeployLog.id.desc()).limit(1000).all()
-        nsk = ZoneInfo("Asia/Novosibirsk")
-        for l in logs:
-            if l.created_at:
-                dt = l.created_at.replace(tzinfo=timezone.utc)
-                l.display_time = dt.astimezone(nsk).strftime('%Y-%m-%d %H:%M:%S')
-            else:
-                l.display_time = "—"
-            if l.updated_at and l.created_at:
-                dur = (l.updated_at - l.created_at).total_seconds()
-                l.duration = f"{int(dur // 60)}м {int(dur % 60)}с"
-            else:
-                l.duration = "—"
-    finally:
-        db.close()
+def dashboard(request: Request, limit: int = 300, user: str = Depends(check_auth)):
+    limit = max(1, min(limit, 1000))
+    tz = ZoneInfo(DASH_TIMEZONE)
+    with session_scope() as db:
+        logs = db.query(DeployLog).order_by(DeployLog.id.desc()).limit(limit).all()
+        for entry in logs:
+            entry.display_time = (
+                entry.created_at.replace(tzinfo=ZoneInfo("UTC")).astimezone(tz).strftime('%Y-%m-%d %H:%M:%S')
+                if entry.created_at else "—"
+            )
+            entry.duration = _fmt_duration(entry)
+        db.expunge_all()
 
     return templates.TemplateResponse(
         request=request, name="index.html",
@@ -92,13 +133,15 @@ def dashboard(request: Request, user: str = Depends(check_auth)):
             "logs": logs,
             "jira_url": JIRA_SERVER,
             "skip_tags_default": SKIP_TAGS_DEFAULT,
+            "csrf_token": make_csrf_token(user),
         },
     )
+
 
 @app.get("/inventory", response_class=HTMLResponse)
 def view_inventory(request: Request, user: str = Depends(check_auth)):
     groups = parse_inventory(INVENTORY_PATH)
-    raw = INVENTORY_PATH.read_text() if INVENTORY_PATH.exists() else "Файл не найден."
+    raw = INVENTORY_PATH.read_text(encoding="utf-8") if INVENTORY_PATH.exists() else "Файл не найден."
 
     clubgg_pcs: list[str] = []
     for g, hosts in groups.items():
@@ -112,122 +155,81 @@ def view_inventory(request: Request, user: str = Depends(check_auth)):
             "raw_content": raw,
             "clubgg_pcs": clubgg_pcs,
             "target_group": TARGET_GROUP,
+            "csrf_token": make_csrf_token(user),
         },
     )
 
-@app.post("/inventory/add")
-def manual_inventory_add(
-    new_pcs: str = Form(...),
-    user: str = Depends(check_auth)
-):
-    db = SessionLocal()
-    try:
-        active_deploy = db.query(DeployLog).filter(DeployLog.status.like("%В процессе%")).first()
-        if active_deploy:
-            raise HTTPException(
-                status_code=400, 
-                detail="Инвентарь занят: выполняется деплой. Подождите завершения задачи."
-            )
-    finally:
-        db.close()
 
-    pcs = [sanitize_pc_name(pc) for pc in new_pcs.replace(" ", ",").split(",") if pc.strip()]
-    pcs = [pc for pc in pcs if pc]
-    
+@app.post("/inventory/add")
+def manual_inventory_add(new_pcs: str = Form(...), user: str = Depends(csrf_protect)):
+    pcs = parse_pc_list(new_pcs)
     if not pcs:
         raise HTTPException(status_code=400, detail="Не указаны имена ПК")
 
-    found, missing = check_pcs_in_inventory(pcs)
-    if missing:
-        success = add_pcs_to_inventory(missing)
-        if not success:
-            raise HTTPException(status_code=500, detail="Ошибка при записи в файл инвентаря.")
-            
+    with session_scope() as db:
+        if get_active_log(db):
+            raise HTTPException(
+                status_code=400,
+                detail="Инвентарь занят: выполняется деплой. Подождите завершения задачи.",
+            )
+
+    ok, _ = ensure_in_inventory(pcs)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Ошибка при записи в файл инвентаря.")
+    log.info("Inventory add by %s: %s", user, ",".join(pcs))
     return RedirectResponse("/inventory", status_code=303)
+
 
 @app.get("/api/statuses")
 def api_statuses(user: str = Depends(check_auth)):
-    db = SessionLocal()
-    try:
+    with session_scope() as db:
         logs = db.query(DeployLog).order_by(DeployLog.id.desc()).limit(100).all()
-        result = {}
-        for l in logs:
-            if l.updated_at and l.created_at:
-                dur = (l.updated_at - l.created_at).total_seconds()
-                duration_str = f"{int(dur // 60)}м {int(dur % 60)}с"
-            else:
-                duration_str = "—"
-            
-            result[l.id] = {
-                "status": l.status or "Неизвестно",
-                "duration": duration_str
-            }
-        return result
-    finally:
-        db.close()
+        return {
+            entry.id: {"status": entry.status or "Неизвестно", "duration": _fmt_duration(entry)}
+            for entry in logs
+        }
 
-def get_deploy_settings():
-    sfile = BASE_DIR / "deploy_settings.json"
-    if sfile.exists():
-        try:
-            return json.loads(sfile.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-    return {
-        "full_args": f"--skip-tags {SKIP_TAGS_DEFAULT}",
-        "room_args": "--tags neoagent,clubgg,neoagent_account_shortcuts"
-    }
 
 @app.get("/api/settings")
 def api_get_settings(user: str = Depends(check_auth)):
-    state_file = BASE_DIR / "bot_status.txt"
-    is_enabled = False if not state_file.exists() or state_file.read_text().strip() == "0" else True
     settings = get_deploy_settings()
     return {
-        "bot_enabled": is_enabled,
-        "full_args": settings.get("full_args", f"--skip-tags {SKIP_TAGS_DEFAULT}"),
-        "room_args": settings.get("room_args", "--tags neoagent,clubgg,neoagent_account_shortcuts")
+        "bot_enabled": is_bot_enabled(),
+        "full_args": settings["full_args"],
+        "room_args": settings["room_args"],
     }
 
+
 @app.post("/api/settings")
-async def api_save_settings(request: Request, user: str = Depends(check_auth)):
+async def api_save_settings(request: Request, user: str = Depends(csrf_protect)):
     data = await request.json()
-    
-    bot_enabled = data.get("bot_enabled", False)
-    state_file = BASE_DIR / "bot_status.txt"
-    state_file.write_text("1" if bot_enabled else "0", encoding="utf-8")
-    
-    sfile = BASE_DIR / "deploy_settings.json"
-    sfile.write_text(json.dumps({
-        "full_args": data.get("full_args", ""),
-        "room_args": data.get("room_args", "")
-    }, ensure_ascii=False, indent=2), encoding="utf-8")
-    
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=400, detail="Ожидается JSON-объект")
+    # Аргументы Ansible проверяются по белому списку (--tags/--skip-tags/-f), см. validation.py
+    current = get_deploy_settings()
+    save_deploy_settings(
+        str(data.get("full_args") or current["full_args"]),
+        str(data.get("room_args") or current["room_args"]),
+    )
+    set_bot_enabled(bool(data.get("bot_enabled", False)))
+    log.info("Settings changed by %s (bot_enabled=%s)", user, bool(data.get("bot_enabled", False)))
     return {"status": "ok"}
 
-def _build_manual_cmd(deploy_type: str, pcs: list[str], skip_tags: str):
-    target = ",".join(pcs)
-    settings = get_deploy_settings()
-    
-    if deploy_type == "full":
-        task_name = "Полный деплой"
-        cmd = ["ansible-playbook", PLAYBOOK_MOBIDESK, "-e", f"target={target}"]
-        if skip_tags.strip():
-            cmd += ["--skip-tags", skip_tags.strip()]
-        else:
-            cmd += settings.get("full_args", f"--skip-tags {SKIP_TAGS_DEFAULT}").split()
-            
-    elif deploy_type == "ssh":
-        task_name = "Закинуть SSH"
-        cmd = ["ansible-playbook", PLAYBOOK_OPENSSH, "-e", f"target={target}"]
-    else:
-        task_name = "Обновление рума"
-        cmd = ["ansible-playbook", PLAYBOOK_MOBIDESK, "-e", f"target={target}"]
-        cmd += settings.get("room_args", "--tags neoagent,clubgg,neoagent_account_shortcuts").split()
-        
-    if len(pcs) > 1 and deploy_type != "ssh":
-        cmd += ["-f", str(len(pcs))]
-    return task_name, cmd
+
+def _launch(background_tasks: BackgroundTasks, *, deploy_type: str, pcs: list[str],
+            skip_tags: str, jira_key: str, suffix: str, user: str) -> None:
+    try:
+        log_id, cmd = start_manual_deploy(
+            deploy_type=deploy_type, pcs=pcs, skip_tags=skip_tags,
+            jira_key=jira_key, task_suffix=suffix, user=user,
+        )
+    except DeployBusy as e:
+        raise HTTPException(status_code=400, detail=f"Инвентарь занят: {e}")
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    log.info("Deploy #%s started by %s: %s", log_id, user, " ".join(cmd))
+    background_tasks.add_task(run_and_wait_detached, cmd, log_id)
+
 
 @app.post("/manual_deploy")
 def manual_deploy(
@@ -235,145 +237,83 @@ def manual_deploy(
     target_pcs: str = Form(...),
     deploy_type: str = Form(...),
     skip_tags: str = Form(""),
-    user: str = Depends(check_auth),
+    user: str = Depends(csrf_protect),
 ):
-    pcs = [sanitize_pc_name(pc) for pc in target_pcs.split(",") if pc.strip()]
-    pcs = [pc for pc in pcs if pc]
+    if deploy_type not in DEPLOY_TYPES:
+        raise HTTPException(status_code=400, detail="Неизвестный тип деплоя")
+    pcs = parse_pc_list(target_pcs)
     if not pcs:
         return RedirectResponse("/", status_code=303)
-        
-    db = SessionLocal()
-    try:
-        active_deploy = db.query(DeployLog).filter(
-            DeployLog.status.in_(["В процессе (Ansible)", "Инициализация"])
-        ).first()
-        if active_deploy:
-            raise HTTPException(
-                status_code=400, 
-                detail="Инвентарь занят: в данный момент уже выполняется деплой. Дождитесь завершения."
-            )
-    finally:
-        db.close()
+    skip_tags = validate_tags(skip_tags)
 
-    found, missing = check_pcs_in_inventory(pcs)
-    if missing:
-        if not add_pcs_to_inventory(missing):
-            raise HTTPException(status_code=500, detail="Ошибка при записи недостающих ПК в файл инвентаря.")
-
-    target_str = ",".join(pcs)
-    task_name, cmd = _build_manual_cmd(deploy_type, pcs, skip_tags)
-
-    db = SessionLocal()
-    new_log = DeployLog(
-        jira_key="Ручной запуск",
-        task_type=task_name,
-        target_pcs=target_str,
-        status="В процессе (Ansible)",
-        skip_tags=skip_tags if deploy_type == "full" else None,
-        deploy_type=deploy_type,
-    )
-    db.add(new_log); db.commit(); db.refresh(new_log)
-    log_id = new_log.id
-    
-    new_log.log_file = str(DEPLOY_LOG_DIR / f"deploy_{log_id}.log")
-    db.commit()
-    db.close()
-
-    background_tasks.add_task(run_and_wait_detached, cmd, log_id)
+    _launch(background_tasks, deploy_type=deploy_type, pcs=pcs, skip_tags=skip_tags,
+            jira_key="Ручной запуск", suffix="", user=user)
     return RedirectResponse("/", status_code=303)
 
+
 @app.post("/repeat/{log_id}")
-def repeat_deploy(log_id: int,
-                  background_tasks: BackgroundTasks,
-                  user: str = Depends(check_auth)):
-    db = SessionLocal()
-    try:
+def repeat_deploy(log_id: int, background_tasks: BackgroundTasks, user: str = Depends(csrf_protect)):
+    with session_scope() as db:
         old = db.query(DeployLog).filter(DeployLog.id == log_id).first()
         if not old:
             raise HTTPException(404)
-        pcs = [sanitize_pc_name(p) for p in (old.target_pcs or "").split(",") if p.strip()]
-        pcs = [p for p in pcs if p]
-        dtype = old.deploy_type or "room_only"
+        pcs = parse_pc_list((old.target_pcs or "").replace(",", " "))
+        dtype = old.deploy_type if old.deploy_type in DEPLOY_TYPES else "room_only"
         stags = old.skip_tags or ""
-        
-        active_deploy = db.query(DeployLog).filter(
-            DeployLog.status.in_(["В процессе (Ansible)", "Инициализация"])
-        ).first()
-        if active_deploy:
-            raise HTTPException(
-                status_code=400, 
-                detail="Инвентарь занят: в данный момент уже выполняется деплой. Дождитесь завершения."
-            )
-    finally:
-        db.close()
 
     if not pcs:
         return RedirectResponse("/", status_code=303)
-        
-    found, missing = check_pcs_in_inventory(pcs)
-    if missing:
-        if not add_pcs_to_inventory(missing):
-            raise HTTPException(status_code=500, detail="Ошибка при записи недостающих ПК в файл инвентаря.")
 
-    target_str = ",".join(pcs)
-    task_name, cmd = _build_manual_cmd(dtype, pcs, stags)
-    task_name += " (повтор)"
-
-    db = SessionLocal()
-    new_log = DeployLog(
-        jira_key=f"Повтор #{log_id}",
-        task_type=task_name,
-        target_pcs=target_str,
-        status="В процессе (Ansible)",
-        skip_tags=stags if dtype == "full" else None,
-        deploy_type=dtype,
-    )
-    db.add(new_log); db.commit(); db.refresh(new_log)
-    new_id = new_log.id
-    
-    new_log.log_file = str(DEPLOY_LOG_DIR / f"deploy_{new_id}.log")
-    db.commit()
-    db.close()
-
-    background_tasks.add_task(run_and_wait_detached, cmd, new_id)
+    _launch(background_tasks, deploy_type=dtype, pcs=pcs, skip_tags=stags,
+            jira_key=f"Повтор #{log_id}", suffix=" (повтор)", user=user)
     return RedirectResponse("/", status_code=303)
 
+
 @app.post("/cancel/{log_id}")
-def cancel(log_id: int, user: str = Depends(check_auth)):
+def cancel(log_id: int, user: str = Depends(csrf_protect)):
     ok = cancel_deploy(log_id)
+    log.info("Cancel #%s by %s: %s", log_id, user, ok)
     return {"cancelled": ok}
+
+
+def _status_of(log_id: int) -> str:
+    with session_scope() as db:
+        entry = db.query(DeployLog).filter(DeployLog.id == log_id).first()
+        return entry.status if entry else ""
+
 
 @app.get("/logs/{log_id}/stream")
 async def stream_logs(log_id: int, user: str = Depends(check_auth)):
-    db = SessionLocal()
-    try:
+    with session_scope() as db:
         dblog = db.query(DeployLog).filter(DeployLog.id == log_id).first()
         if not dblog:
             raise HTTPException(404)
         log_file = dblog.log_file
-    finally:
-        db.close()
 
     async def gen():
         if not log_file or not os.path.exists(log_file):
             yield "data: (лог-файл недоступен или уже удалён)\n\n"
             yield "data: [END]\n\n"
             return
-        with open(log_file, "r", errors="replace") as f:
+        idle = 0
+        with open(log_file, "r", encoding="utf-8", errors="replace") as f:
             while True:
                 line = f.readline()
                 if line:
+                    idle = 0
                     yield f"data: {line.rstrip()}\n\n"
-                else:
-                    db2 = SessionLocal()
-                    try:
-                        s = db2.query(DeployLog).filter(DeployLog.id == log_id).first()
-                        cur_status = s.status if s else ""
-                    finally:
-                        db2.close()
-                    if "В процессе" not in (cur_status or "") and "Инициализация" not in (cur_status or ""):
+                    continue
+                # Статус в БД проверяем не на каждой пустой итерации и вне event loop
+                idle += 1
+                if idle % 3 == 1:
+                    status = await asyncio.to_thread(_status_of, log_id)
+                    if not is_active(status):
+                        # дочитать то, что дописали между чтением и проверкой статуса
+                        rest = f.read()
+                        for ln in rest.splitlines():
+                            yield f"data: {ln}\n\n"
                         yield "data: [END]\n\n"
-                        break
-                    await asyncio.sleep(1)
+                        return
+                await asyncio.sleep(1)
 
     return StreamingResponse(gen(), media_type="text/event-stream")

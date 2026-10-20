@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="csrf-token" content="{{ csrf_token }}">
 <title>Журнал задач — Deploy System</title>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -499,6 +500,7 @@ body{
     </div>
     <div class="panel-b">
       <form action="/manual_deploy" method="post" class="row g-3 align-items-end">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <div class="col-12 col-lg-3">
           <label class="lbl" for="target_pcs">ПК (через запятую)</label>
           <input type="text" class="inp" id="target_pcs" name="target_pcs"
@@ -736,6 +738,8 @@ document.getElementById('theme-toggle').addEventListener('click', function () {
   });
 })();
 
+const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]').content;
+
 /* ---------- Toast & Modals ---------- */
 function toast(msg, type = 'info', ms = 3200) {
   const c = document.getElementById('toast-container');
@@ -745,7 +749,11 @@ function toast(msg, type = 'info', ms = 3200) {
     error:'bi-exclamation-octagon-fill', warn:'bi-exclamation-triangle-fill'
   };
   t.className = 'toast-item toast-' + type;
-  t.innerHTML = `<i class="bi ${icons[type] || icons.info}"></i><span>${msg}</span>`;
+  const ic = document.createElement('i');
+  ic.className = 'bi ' + (icons[type] || icons.info);
+  const sp = document.createElement('span');
+  sp.textContent = msg;
+  t.append(ic, sp);
   c.appendChild(t);
   requestAnimationFrame(() => t.classList.add('show'));
   setTimeout(() => {
@@ -935,6 +943,9 @@ async function repeatDeploy(id) {
   const f = document.createElement('form');
   f.method = 'POST';
   f.action = '/repeat/' + id;
+  const tk = document.createElement('input');
+  tk.type = 'hidden'; tk.name = 'csrf_token'; tk.value = CSRF_TOKEN;
+  f.appendChild(tk);
   document.body.appendChild(f);
   f.submit();
 }
@@ -948,7 +959,7 @@ async function cancelDeploy(id) {
   });
   if (!ok) return;
   try {
-    const r = await fetch('/cancel/' + id, { method: 'POST' });
+    const r = await fetch('/cancel/' + id, { method: 'POST', headers: { 'X-CSRF-Token': CSRF_TOKEN } });
     const d = await r.json();
     if (d.cancelled) toast(`Запуск #${id} отменён`, 'success');
     else             toast(`Не удалось отменить #${id} — процесс уже завершён`, 'warn');
@@ -991,7 +1002,7 @@ function updateStatuses() {
 
           if (currentStatusAttr !== targetCategory) {
             row.attr('data-status', targetCategory);
-            row.find('td:eq(4)').html(`<span class="st ${badgeClass}">${newStatus}</span>`);
+            row.find('td:eq(4)').empty().append($('<span>').addClass('st ' + badgeClass).text(newStatus));
             if (targetCategory !== 'progress') row.find('.js-cancel').remove();
             flashRow(row);
             if (targetCategory === 'error') window.eggReact && window.eggReact('rage');
@@ -1042,17 +1053,20 @@ $(document).ready(function () {
     $saveBtn.prop('disabled', true);
     fetch('/api/settings', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF_TOKEN },
       body: JSON.stringify(payload)
     })
-    .then(res => res.json())
+    .then(async res => {
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    })
     .then(data => {
       toast("Настройки успешно сохранены", "success");
       modal.hide();
     })
     .catch(err => {
       console.error(err);
-      toast("Ошибка при сохранении", "error");
+      toast("Ошибка при сохранении: " + (err.message || '').slice(0, 200), "error");
     })
     .finally(() => {
       $saveBtn.prop('disabled', false);

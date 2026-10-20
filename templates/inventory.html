@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="csrf-token" content="{{ csrf_token }}">
 <title>Inventory — Deploy System</title>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -316,6 +317,7 @@ body{
         </div>
         <div class="panel-b">
           <form action="/inventory/add" method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <label class="lbl" for="new_pcs">Имена ПК (через запятую)</label>
             <input type="text" class="inp mb-3" id="new_pcs" name="new_pcs"
                    placeholder="A105, A106" required autocomplete="off">
