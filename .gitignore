@@ -1,14 +1,20 @@
 # Виртуальное окружение
 venv/
 env/
+.venv/
 
-# Кэш Python
+# Кэш Python / тестов
 __pycache__/
 *.py[cod]
+.pytest_cache/
+.ruff_cache/
 
-# Базы данных и логи
+# Базы данных, логи, состояние
 *.db
 *.log
+bot_status.txt
+deploy_settings.json
+*.bak
 
 # Секреты
 .env

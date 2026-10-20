@@ -1,0 +1,15 @@
+[Unit]
+Description=Deploy System dashboard + Jira bot
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/deploy_system
+EnvironmentFile=/opt/deploy_system/.env
+# ВАЖНО: ровно один worker — lock деплоя и планировщик живут в памяти процесса
+ExecStart=/opt/deploy_system/venv/bin/uvicorn mm_server:app --host 127.0.0.1 --port 8000 --workers 1
+Restart=on-failure
+# Ansible запускается в отдельной сессии; при рестарте сервиса его не убиваем
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target
