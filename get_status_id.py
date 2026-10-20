@@ -10,7 +10,6 @@ import os
 import sys
 import requests
 from dotenv import load_dotenv
-from requests.auth import HTTPBasicAuth
 
 load_dotenv()
 
@@ -26,7 +25,7 @@ HEADERS = {
     "Authorization": f"Bearer {JIRA_2_TOKEN}",
     "Accept": "application/json"
 }
-STATUS_ATTR_ID = 589  # атрибут 'Status' у объекта типа Automat
+from config import INSIGHT_STATUS_ATTR_ID as STATUS_ATTR_ID  # noqa: E402
 
 
 def insight_get(path: str, **params) -> dict:
@@ -61,7 +60,7 @@ def find_status_id_by_example(status_name: str, object_type: str = "Automat") ->
 
         status_ref = values[0].get("status") or {}
         sid = status_ref.get("id")
-        
+
         if sid is None:
             return None
         return sid

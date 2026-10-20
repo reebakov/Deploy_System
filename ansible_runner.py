@@ -3,11 +3,13 @@ import os
 import re
 import signal
 import subprocess
+import threading
 import time
 from pathlib import Path
 
 from config import ANSIBLE_CWD, ANSIBLE_TIMEOUT, DEPLOY_LOG_DIR
-from database import SessionLocal, DeployLog
+from database import DeployLog, session_scope
+from statuses import Status, is_active
 
 log = logging.getLogger(__name__)
 
@@ -24,172 +26,220 @@ ANSIBLE_RC = {
     100: "Плейбук завершён с ошибками (100)",
 }
 
+_HAS_PGROUP = hasattr(os, "killpg")
+
+
 def get_ansible_status(code: int) -> str:
     return ANSIBLE_RC.get(code, f"Неизвестный код {code}")
 
-def get_detailed_status(rc: int, log_file: Path) -> str:
+
+def parse_recap(content: str) -> tuple[int, int] | None:
+    """Возвращает (успешных хостов, проблемных хостов) по блоку PLAY RECAP или None."""
+    if "PLAY RECAP" not in content:
+        return None
+    recap_block = content.split("PLAY RECAP")[-1]
+    success_hosts = failed_hosts = 0
+    for line in recap_block.splitlines():
+        line = line.strip()
+        if not line or ":" not in line or "ok=" not in line:
+            continue
+        if re.search(r'failed=[1-9]\d*', line) or re.search(r'unreachable=[1-9]\d*', line):
+            failed_hosts += 1
+        elif re.search(r'ok=[1-9]\d*', line):
+            success_hosts += 1
+    return success_hosts, failed_hosts
+
+
+def get_detailed_status(rc: int, log_file: Path | None) -> str:
     base_status = get_ansible_status(rc)
-    if rc not in (2, 3) or not log_file or not log_file.exists():
+    if rc not in (2, 3) or not log_file or not Path(log_file).exists():
         return base_status
-    
     try:
-        content = log_file.read_text(errors="replace")
-        if "PLAY RECAP" not in content:
-            return base_status
-        
-        recap_block = content.split("PLAY RECAP")[-1]
-        
-        success_hosts = 0
-        failed_hosts = 0
-        
-        for line in recap_block.splitlines():
-            line = line.strip()
-            if not line or ":" not in line or "ok=" not in line:
-                continue
-                
-            if re.search(r'failed=[1-9]\d*', line) or re.search(r'unreachable=[1-9]\d*', line):
-                failed_hosts += 1
-            elif re.search(r'ok=[1-9]\d*', line):
-                success_hosts += 1
-                
-        if success_hosts > 0 and failed_hosts > 0:
-            return f"Частично ({success_hosts} ок, {failed_hosts} fail)"
-        elif success_hosts == 0 and failed_hosts > 0:
-            return f"Все failed ({failed_hosts} шт)"
+        recap = parse_recap(Path(log_file).read_text(encoding="utf-8", errors="replace"))
+        if recap:
+            ok, failed = recap
+            if ok > 0 and failed > 0:
+                return f"Частично ({ok} ок, {failed} fail)"
+            if ok == 0 and failed > 0:
+                return f"Все failed ({failed} шт)"
     except Exception as e:
         log.warning("Ошибка парсинга лога для статуса: %s", e)
-        
     return base_status
+
 
 def _log_path(log_id: int) -> Path:
     return DEPLOY_LOG_DIR / f"deploy_{log_id}.log"
 
-def _save_result(log_id: int, status: str):
-    db = SessionLocal()
-    try:
+
+def _save_result(log_id: int, status: str) -> None:
+    with session_scope() as db:
         dblog = db.query(DeployLog).filter(DeployLog.id == log_id).first()
         if dblog:
             dblog.status = status
-            db.commit()
-    finally:
-        db.close()
 
-def run_and_wait_detached(ansible_cmd: list[str], log_id: int, timeout: int = ANSIBLE_TIMEOUT):
-    log_file = _log_path(log_id)
+
+def _save_pid(log_id: int, pid: int, log_file: Path | None) -> None:
+    with session_scope() as db:
+        dblog = db.query(DeployLog).filter(DeployLog.id == log_id).first()
+        if dblog:
+            dblog.pid = pid
+            if log_file:
+                dblog.log_file = str(log_file)
+
+
+def _signal_group(pid: int, sig: int) -> None:
+    if _HAS_PGROUP:
+        os.killpg(os.getpgid(pid), sig)
+    else:  # Windows (разработка)
+        os.kill(pid, signal.SIGTERM)
+
+
+def _terminate(proc: subprocess.Popen, grace: int = 5) -> None:
+    """SIGTERM на группу процессов, через grace секунд — SIGKILL."""
     try:
-        f = open(log_file, "w")
-        f.write(f"Command: {' '.join(ansible_cmd)}\n\n=== LOGS ===\n")
-        f.flush()
-    except Exception as e:
-        _save_result(log_id, f"Критическая ошибка: {e}")
+        _signal_group(proc.pid, signal.SIGTERM)
+    except ProcessLookupError:
         return
+    deadline = time.monotonic() + grace
+    while time.monotonic() < deadline:
+        if proc.poll() is not None:
+            return
+        time.sleep(0.2)
+    try:
+        _signal_group(proc.pid, getattr(signal, "SIGKILL", signal.SIGTERM))
+    except ProcessLookupError:
+        pass
+
+
+def execute(ansible_cmd: list[str], log_id: int | None = None,
+            timeout: int = ANSIBLE_TIMEOUT) -> tuple[int, str, str]:
+    """Единая точка запуска ansible. Возвращает (rc, stdout_если_нет_лог_файла, статус).
+
+    Если передан log_id — вывод дописывается в файл лога, pid сохраняется в БД.
+    Таймаут всегда даёт статус «Таймаут» (rc = -1).
+    """
+    log_file = _log_path(log_id) if log_id else None
+    try:
+        sink = open(log_file, "a", encoding="utf-8") if log_file else None
+    except OSError as e:
+        return -1, f"Ошибка открытия лога: {e}", Status.CRITICAL
 
     try:
+        if sink:
+            sink.write(f"\n🚀 Command: {' '.join(ansible_cmd)}\n=== ANSIBLE LOGS ===\n")
+            sink.flush()
         proc = subprocess.Popen(
             ansible_cmd,
             cwd=str(ANSIBLE_CWD),
-            stdout=f,
+            stdout=sink if sink else subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             start_new_session=True,
         )
-        f.close()
-
-        db = SessionLocal()
-        try:
-            dblog = db.query(DeployLog).filter(DeployLog.id == log_id).first()
-            if dblog:
-                dblog.pid = proc.pid
-                dblog.log_file = str(log_file)
-                db.commit()
-        finally:
-            db.close()
-
-        try:
-            rc = proc.wait(timeout=timeout)
-            status = get_detailed_status(rc, log_file)
-        except subprocess.TimeoutExpired:
-            try:
-                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-                time.sleep(5)
-                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            status = "Таймаут"
-
-        _save_result(log_id, status)
-
-    except Exception as e:
-        log.exception("Ansible run failed")
-        _save_result(log_id, "Критическая ошибка")
-
-def run_ansible_blocking(ansible_cmd: list[str], log_id: int = None, timeout: int = ANSIBLE_TIMEOUT) -> tuple[int, str, str]:
-    log_file = _log_path(log_id) if log_id else None
-    f = open(log_file, "a") if log_file else None
-    
-    if f:
-        f.write(f"\n🚀 Command: {' '.join(ansible_cmd)}\n=== ANSIBLE LOGS ===\n")
-        f.flush()
-
-    try:
-        proc = subprocess.Popen(
-            ansible_cmd,
-            cwd=str(ANSIBLE_CWD),
-            stdout=f if f else subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            start_new_session=True 
-        )
-        
         if log_id:
-            db = SessionLocal()
-            try:
-                dblog = db.query(DeployLog).filter(DeployLog.id == log_id).first()
-                if dblog:
-                    dblog.pid = proc.pid
-                    db.commit()
-            finally:
-                db.close()
+            _save_pid(log_id, proc.pid, log_file)
 
         try:
-            if f:
-                rc = proc.wait(timeout=timeout)
-                out = ""
+            if sink:
+                rc, out = proc.wait(timeout=timeout), ""
             else:
                 out, _ = proc.communicate(timeout=timeout)
                 rc = proc.returncode
         except subprocess.TimeoutExpired:
-            try:
-                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-            if not f:
-                out, _ = proc.communicate()
-            else:
-                out = ""
-            return -1, (out or ""), "Таймаут"
-        finally:
-            if f:
-                f.close()
-        
-        status = get_detailed_status(rc, log_file) if log_file else get_ansible_status(rc)
-        return rc, (out or ""), status
+            _terminate(proc)
+            out = "" if sink else (proc.communicate()[0] or "")
+            return -1, out, Status.TIMEOUT
     except Exception as e:
-        if f:
-            f.close()
-        return -1, f"Ошибка запуска: {e}", "Критическая ошибка"
+        log.exception("Ansible run failed")
+        return -1, f"Ошибка запуска: {e}", Status.CRITICAL
+    finally:
+        if sink:
+            sink.close()
+
+    status = get_detailed_status(rc, log_file) if log_file else get_ansible_status(rc)
+    return rc, (out or ""), status
+
+
+def run_ansible_blocking(ansible_cmd: list[str], log_id: int | None = None,
+                         timeout: int = ANSIBLE_TIMEOUT) -> tuple[int, str, str]:
+    """Синхронный запуск; статус в БД не пишется (это делает вызывающий код)."""
+    return execute(ansible_cmd, log_id=log_id, timeout=timeout)
+
+
+def run_and_wait_detached(ansible_cmd: list[str], log_id: int, timeout: int = ANSIBLE_TIMEOUT) -> None:
+    """Запуск для ручных деплоев: результат (в т.ч. таймаут) сразу пишется в БД."""
+    log_file = _log_path(log_id)
+    try:
+        with open(log_file, "a", encoding="utf-8") as f:
+            f.write(f"Command: {' '.join(ansible_cmd)}\n\n=== LOGS ===\n")
+    except OSError as e:
+        _save_result(log_id, f"{Status.CRITICAL}: {e}")
+        return
+    _, _, status = execute(ansible_cmd, log_id=log_id, timeout=timeout)
+    _save_result(log_id, status)
+
+
+def pid_alive(pid: int | None) -> bool:
+    if not pid or not _HAS_PGROUP:  # на Windows os.kill(pid, 0) убивает процесс — не используем
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
 
 def cancel_deploy(log_id: int) -> bool:
-    db = SessionLocal()
-    try:
+    """Отменяет только АКТИВНЫЙ деплой (защита от убийства чужого процесса по переиспользованному pid)."""
+    with session_scope() as db:
         dblog = db.query(DeployLog).filter(DeployLog.id == log_id).first()
-        if not dblog or not dblog.pid:
+        if not dblog or not dblog.pid or not is_active(dblog.status):
             return False
+        pid = dblog.pid
+    try:
+        _signal_group(pid, signal.SIGTERM)
+        log.info("Cancelled deploy #%s (pid=%s)", log_id, pid)
+        return True
+    except (ProcessLookupError, PermissionError):
+        return False
+
+
+def _infer_status_from_log(log_file: str | None) -> str:
+    if log_file and os.path.exists(log_file):
         try:
-            os.killpg(os.getpgid(dblog.pid), signal.SIGTERM)
-            log.info("Cancelled deploy #%s (pid=%s)", log_id, dblog.pid)
-            return True
-        except (ProcessLookupError, PermissionError):
-            return False
-    finally:
-        db.close()
+            recap = parse_recap(Path(log_file).read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            recap = None
+        if recap:
+            ok, failed = recap
+            if failed == 0 and ok > 0:
+                return "Успешно (подтверждено по логу после рестарта)"
+            if ok > 0:
+                return f"Частично ({ok} ок, {failed} fail)"
+            return f"Все failed ({failed} шт)"
+    return Status.INTERRUPTED
+
+
+def _watch_orphan(log_id: int, pid: int, log_file: str | None) -> None:
+    while pid_alive(pid):
+        time.sleep(5)
+    _save_result(log_id, _infer_status_from_log(log_file))
+    log.info("Orphan deploy #%s (pid=%s) finished", log_id, pid)
+
+
+def recover_active_deploys() -> None:
+    """При старте сервиса: живые процессы остаются «активными» (за ними следит watcher),
+    мёртвые получают статус по логу — вместо слепого «Прервано (рестарт)»."""
+    with session_scope() as db:
+        active = [(d.id, d.pid, d.log_file) for d in db.query(DeployLog).all() if is_active(d.status)]
+    for log_id, pid, log_file in active:
+        if pid_alive(pid):
+            log.warning("Deploy #%s (pid=%s) still running after restart — watching", log_id, pid)
+            threading.Thread(target=_watch_orphan, args=(log_id, pid, log_file),
+                             daemon=True, name=f"orphan-{log_id}").start()
+        else:
+            _save_result(log_id, _infer_status_from_log(log_file) if pid else Status.INTERRUPTED)

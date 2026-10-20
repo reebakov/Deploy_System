@@ -1,10 +1,14 @@
 import logging
-import sys
 import os
+import sys
+from logging.handlers import RotatingFileHandler
+
+from config import APP_LOG_FILE
 
 _configured = False
 
-def setup_logging(log_file: str = '/var/log/deploy-bot.log') -> logging.Logger:
+
+def setup_logging(log_file: str = APP_LOG_FILE) -> logging.Logger:
     global _configured
     root = logging.getLogger()
     if _configured:
@@ -19,7 +23,7 @@ def setup_logging(log_file: str = '/var/log/deploy-bot.log') -> logging.Logger:
 
     try:
         os.makedirs(os.path.dirname(log_file), exist_ok=True)
-        fh = logging.FileHandler(log_file)
+        fh = RotatingFileHandler(log_file, maxBytes=10 * 1024 * 1024, backupCount=5, encoding='utf-8')
         fh.setFormatter(fmt)
         root.addHandler(fh)
     except Exception as e:
